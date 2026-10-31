@@ -209,6 +209,11 @@ legend { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.4rem; }
 }
 .collapsed-line:focus-visible { outline: none; }
 
+/* Automatic arrival calculator: the two times it's working from. */
+.calc-inputs { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; padding: 0.85rem 1rem; border-radius: var(--radius-sm); background: var(--surface-2); margin: 0.75rem 0 0.25rem; }
+.calc-inputs > span { display: inline-flex; align-items: baseline; gap: 0.5rem; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; background: #22c55e; box-shadow: 0 0 0 3px rgb(34 197 94 / 0.22); animation: pulse 1.6s ease-in-out infinite; }
+
 /* ---------- Demo admin ---------- */
 .menu-badge { margin-left: auto; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; background: var(--primary-soft); color: var(--primary); }
 .admin-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1.25rem 2rem; }
@@ -256,7 +261,13 @@ legend { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.4rem; }
 .wf-page-head p { margin: 0; color: var(--muted); }
 .wf-page-icon { width: 56px; height: 56px; flex: none; border-radius: 16px; display: grid; place-items: center; background: #fff; border: 1px solid var(--border); box-shadow: 0 0 0 4px var(--primary-soft); }
 .wf-page-icon .image-icon { width: 34px; height: 34px; }
-.content.picker { max-width: 760px; padding-top: clamp(2rem, 6vh, 4rem); }
+/* Workflow picker: greeting + dropdown sit in the middle of the screen, centered both ways. */
+.content.picker {
+  max-width: 760px; min-height: calc(100vh - 64px);
+  padding-top: 1.5rem; padding-bottom: 12vh; /* a little above true center reads as centered */
+  align-content: center; justify-items: stretch;
+}
+.content.picker .greeting { text-align: center; }
 .menu-wf-icon { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; background: #fff; border: 1px solid var(--border); }
 .menu-wf-icon .image-icon { width: 18px; height: 18px; }
 
@@ -691,10 +702,14 @@ a.btn { text-decoration: none; }
 .gap { gap: 0.6rem; }
 .right { display: grid; justify-items: end; gap: 0.3rem; }
 
-.run-bar { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; }
-.run-field { flex: 1 1 280px; display: grid; gap: 0.35rem; }
-.run-field > label { font-weight: 700; }
-.run-field p { margin: 0; }
+.run-bar { display: grid; gap: 0.5rem; }
+.run-row { display: flex; align-items: stretch; justify-content: center; gap: 0.75rem; flex-wrap: wrap; }
+.run-field { flex: 1 1 300px; min-width: 0; }
+.run-btn { min-height: 56px; padding-inline: 1.3rem; border-radius: 14px; flex: none; }
+.run-desc { margin: 0; text-align: center; }
+@media (max-width: 560px) {
+  .run-btn { width: 100%; }
+}
 .field-label { font-weight: 700; font-size: 0.88rem; }
 
 /* ---------- MenuSelect trigger (the menu itself is MUI Menu, styled in theme.ts) ---------- */

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, fmtDateTime, fmtTime, timeAgo } from "../api";
 import { ErrorNote, Spinner, Stat } from "../components";
 
@@ -31,10 +31,6 @@ const STATUS_TEXT: Record<Arrival["status"], string> = {
 };
 
 const REFRESH_MS = 30_000;
-const toLocalInput = (iso: string) => {
-  const d = new Date(iso);
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
-};
 
 /**
  * Loads the patient's next appointment and keeps it fresh. Patients tend to check
@@ -264,64 +260,77 @@ export function RescheduleWorkflow({ onReady }: { onReady: () => void }) {
   );
 }
 
-/** Workflow: arrival-in-timeframe and minutes-late calculators. */
+const CLOCK_MS = 30_000;
+
+/**
+ * Workflow: arrival calculator, fully automatic. The appointment time comes from the
+ * booking; the arrival time is the check-in time once checked in, otherwise "now"
+ * (re-evaluated every 30s). It recalculates whenever either changes.
+ */
 export function CalculatorWorkflow({ onReady }: { onReady: () => void }) {
-  const [scheduled, setScheduled] = useState("");
-  const [arrived, setArrived] = useState(toLocalInput(new Date().toISOString()));
-  const [grace, setGrace] = useState(10);
+  const { appt, error: loadError, load } = useMyAppointment(onReady);
+  const [now, setNow] = useState(() => Date.now());
   const [result, setResult] = useState<Arrival | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Prefill with the patient's own appointment when there is one.
-    api<{ appointment: Appointment | null }>("/api/appointments/me")
-      .then((r) => setScheduled(toLocalInput(r.appointment?.actualAppointment ?? new Date().toISOString())))
-      .catch(() => setScheduled(toLocalInput(new Date().toISOString())))
-      .finally(onReady);
-  }, [onReady]);
+    const t = setInterval(() => setNow(Date.now()), CLOCK_MS);
+    return () => clearInterval(t);
+  }, []);
 
-  async function calc(e: FormEvent) {
-    e.preventDefault();
-    try {
-      setResult(
-        await api<Arrival>("/api/calculators/arrival", {
-          method: "POST",
-          json: { scheduledAt: new Date(scheduled).toISOString(), arrivedAt: new Date(arrived).toISOString(), graceMinutes: grace },
-        })
-      );
-      setError(null);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
+  const scheduledAt = appt?.actualAppointment;
+  const final = Boolean(appt?.checkedIn && appt.checkedInAt);
+  // Whole minutes are enough; this keeps it from re-calculating on every tick within a minute.
+  const arrivedAt = final ? appt!.checkedInAt! : new Date(Math.floor(now / 60_000) * 60_000).toISOString();
+
+  useEffect(() => {
+    if (!scheduledAt) return;
+    let cancelled = false;
+    api<Arrival>("/api/calculators/arrival", { method: "POST", json: { scheduledAt, arrivedAt } })
+      .then((r) => !cancelled && (setResult(r), setError(null)))
+      .catch((e) => !cancelled && setError((e as Error).message));
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduledAt, arrivedAt]);
+
+  if (appt === undefined) return null;
+  if (appt === null) return <NoAppointment title="Arrival calculator" error={loadError} />;
 
   return (
     <section className="card" aria-labelledby="calc-title">
-      <h2 id="calc-title">Arrival calculator</h2>
-      <form onSubmit={calc} className="stack">
-        <label>
-          Appointment time
-          <input type="datetime-local" value={scheduled} onChange={(e) => setScheduled(e.target.value)} required />
-        </label>
-        <label>
-          Arrival time
-          <input type="datetime-local" value={arrived} onChange={(e) => setArrived(e.target.value)} required />
-        </label>
-        <label>
-          Grace period (minutes)
-          <input type="number" min={0} max={120} value={grace} onChange={(e) => setGrace(Number(e.target.value))} />
-        </label>
-        <button className="btn primary">Calculate</button>
-      </form>
-      <ErrorNote error={error} />
+      <div className="card-head">
+        <h2 id="calc-title">Arrival calculator</h2>
+        <Freshness appt={appt} onRefresh={load} />
+      </div>
+      <p className="muted">
+        {final
+          ? "Calculated from when you checked in."
+          : "Calculated automatically from the current time. It updates on its own, and locks in when you check in."}
+      </p>
+
+      <div className="calc-inputs">
+        <span>
+          <span className="stat-label">Appointment</span>
+          <strong className="num">{fmtDateTime(appt.actualAppointment)}</strong>
+        </span>
+        <span>
+          <span className="stat-label">{final ? "Checked in" : "Now"}</span>
+          <strong className="num">{fmtTime(arrivedAt)}</strong>
+          {!final && <span className="live-dot" aria-hidden="true" />}
+        </span>
+      </div>
+
+      <ErrorNote error={error ?? loadError} />
       {result && (
         <div className="stats" aria-live="polite">
           <Stat label="In timeframe?" value={result.withinWindow ? "Yes" : "No"} sub={STATUS_TEXT[result.status]} />
           <Stat
             label="Late by"
             value={`${result.minutesLate} min`}
-            sub={result.minutesEarly ? `${result.minutesEarly} min early` : `Window ${fmtTime(result.windowStart)}–${fmtTime(result.windowEnd)}`}
+            sub={result.minutesEarly ? `${result.minutesEarly} min early` : "after the appointment time"}
           />
+          <Stat label="Check-in window" value={`${fmtTime(result.windowStart)}–${fmtTime(result.windowEnd)}`} sub="30 min early to 10 min late" />
         </div>
       )}
     </section>

@@ -289,22 +289,25 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
             <p>Choose a workflow and select Run workflow.</p>
           </div>
           <section className="card run-bar" aria-labelledby="wf-label">
-            <div className="run-field">
-              <span id="wf-label" className="field-label">
-                Workflow
-              </span>
-              {workflows ? (
-                <WorkflowSelect options={workflows} value={selected} onChange={setSelected} labelId="wf-label" />
-              ) : (
-                <div className="select-skeleton">
-                  <Spinner /> Loading workflows
-                </div>
-              )}
-              {current && <p className="muted small">{current.description}</p>}
+            <span id="wf-label" className="field-label">
+              Workflow
+            </span>
+            {/* Dropdown and button share one row so they line up exactly. */}
+            <div className="run-row">
+              <div className="run-field">
+                {workflows ? (
+                  <WorkflowSelect options={workflows} value={selected} onChange={setSelected} labelId="wf-label" />
+                ) : (
+                  <div className="select-skeleton">
+                    <Spinner /> Loading workflows
+                  </div>
+                )}
+              </div>
+              <button className="btn primary run-btn" onClick={() => selected && openWorkflow(selected)} disabled={!selected || loading}>
+                {loading ? <Spinner /> : <IconPlay />} Run workflow
+              </button>
             </div>
-            <button className="btn primary" onClick={() => selected && openWorkflow(selected)} disabled={!selected || loading}>
-              {loading ? <Spinner /> : <IconPlay />} Run workflow
-            </button>
+            {current && <p className="muted small run-desc">{current.description}</p>}
           </section>
           <ErrorNote error={error} />
         </main>

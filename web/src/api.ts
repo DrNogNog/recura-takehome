@@ -44,6 +44,9 @@ export async function api<T>(path: string, init: RequestInit & { json?: unknown 
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (init.json !== undefined) headers.set("Content-Type", "application/json");
   const res = await fetch(path, {
+    // Always check with the server before reusing a cached answer. Unchanged data comes
+    // back as a tiny 304 (via ETag), so repeat polling stays cheap but is never stale.
+    cache: "no-cache",
     ...init,
     headers,
     body: init.json !== undefined ? JSON.stringify(init.json) : init.body,
