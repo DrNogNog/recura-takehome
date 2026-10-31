@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, fmtDateTime, fmtTime, timeAgo } from "../api";
-import { ErrorNote, Spinner, Stat } from "../components";
+import { ErrorNote, Spinner, Stat, StatusMessage } from "../components";
+import { useAction } from "../hooks";
 
 interface Appointment {
   id: string;
@@ -111,22 +112,17 @@ export function AppointmentWorkflow({ onReady }: { onReady: () => void }) {
 
 /** Workflow: check-in button and checked-in status. */
 export function CheckInWorkflow({ onReady }: { onReady: () => void }) {
-  const { appt, setAppt, error, setError, load } = useMyAppointment(onReady);
-  const [busy, setBusy] = useState(false);
+  const { appt, setAppt, error: loadError, load } = useMyAppointment(onReady);
+  const { busy, error: actionError, run } = useAction();
   const [arrival, setArrival] = useState<Arrival | null>(null);
+  const error = actionError ?? loadError;
 
   async function checkIn() {
     if (!appt) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api<{ appointment: Appointment; arrival: Arrival | null }>(`/api/appointments/${appt.id}/check-in`, { method: "POST" });
+    const r = await run("checkin", () => api<{ appointment: Appointment; arrival: Arrival | null }>(`/api/appointments/${appt.id}/check-in`, { method: "POST" }));
+    if (r) {
       setAppt(r.appointment);
       setArrival(r.arrival);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -157,7 +153,7 @@ export function CheckInWorkflow({ onReady }: { onReady: () => void }) {
               <strong>Not checked in yet</strong>
               <p className="muted small">Check-in opens 30 minutes before your appointment.</p>
             </div>
-            <button className="btn primary" onClick={checkIn} disabled={busy}>
+            <button className="btn primary" onClick={checkIn} disabled={busy !== null}>
               {busy && <Spinner />} Check in
             </button>
           </>
@@ -180,9 +176,7 @@ export function RescheduleWorkflow({ onReady }: { onReady: () => void }) {
   const [day, setDay] = useState<string | null>(null);
   const [slots, setSlots] = useState<string[] | null>(null);
   const [pick, setPick] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState(false);
+  const { busy, error, notice, run, setError } = useAction();
 
   const shownDay = day ?? appt?.actualAppointment.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
   const apptId = appt?.id;
@@ -201,23 +195,10 @@ export function RescheduleWorkflow({ onReady }: { onReady: () => void }) {
   }, [loadSlots]);
 
   async function confirm() {
-    if (!appt) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const r = await api<{ appointment: Appointment }>(`/api/appointments/${appt.id}/reschedule`, {
-        method: "POST",
-        json: { newStart: pick },
-      });
-      setAppt(r.appointment);
-      setDone(true);
-      loadSlots();
-    } catch (e) {
-      setError((e as Error).message);
-      loadSlots(); // someone may have just taken the slot
-    } finally {
-      setSaving(false);
-    }
+    if (!appt || !pick) return;
+    const r = await run("reschedule", () => api<{ appointment: Appointment }>(`/api/appointments/${appt.id}/reschedule`, { method: "POST", json: { newStart: pick } }), (res) => `Moved to ${fmtDateTime(res.appointment.actualAppointment)}`);
+    if (r) setAppt(r.appointment);
+    loadSlots(); // refresh either way: on failure someone may have just taken the slot
   }
 
   if (appt === undefined) return null;
@@ -230,7 +211,6 @@ export function RescheduleWorkflow({ onReady }: { onReady: () => void }) {
       <p className="muted">
         Currently booked for <strong>{fmtDateTime(appt.actualAppointment)}</strong>
       </p>
-      {done && <p className="badge ok">Moved to {fmtDateTime(appt.actualAppointment)}</p>}
       {locked ? (
         <p className="muted">You're already checked in, so this appointment can't be moved.</p>
       ) : (
@@ -250,9 +230,9 @@ export function RescheduleWorkflow({ onReady }: { onReady: () => void }) {
               </label>
             ))}
           </fieldset>
-          <ErrorNote error={error} />
-          <button className="btn primary" disabled={!pick || saving} onClick={confirm}>
-            {saving && <Spinner />} Move to {pick ? fmtTime(pick) : "…"}
+          <StatusMessage notice={notice} error={error} />
+          <button className="btn primary" disabled={!pick || busy !== null} onClick={confirm}>
+            {busy && <Spinner />} Move to {pick ? fmtTime(pick) : "…"}
           </button>
         </>
       )}

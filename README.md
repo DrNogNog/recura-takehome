@@ -61,7 +61,11 @@ and Elasticsearch, with every workflow switched to its real datastore.
 - Month calendar that follows today's date (past days greyed out): plan one day, or fill the
   rest of the month in one click
 - Log meals as eaten or skipped to estimate real eating habits; future plans adapt to them
-- Without `ANTHROPIC_API_KEY`, an offline planner is used
+- Without `ANTHROPIC_API_KEY`, an offline planner is used; either way each day is tuned to
+  within about 1% of the calorie target
+- Personal catalog: paste a store page link and click "Scrape link, and add food to local
+  personal catalog". Foods are visible only to you and used in your meal plans. The server
+  only fetches public http(s) pages (no private/local addresses), with a timeout and size cap
 
 ## Configuration
 
@@ -73,5 +77,14 @@ to use the real datastores.
 - `npm run dev`: API and portal with hot reload
 - `npm run build` / `npm run build:web`: compile the API / portal (the API serves `web/dist`)
 - `npm start`: run the compiled API
-- `npm test`: unit tests
+- `npm test`: unit tests (calculators, calorie tuning, link-safety checks)
+- `npm run test:e2e`: builds, then runs the end-to-end regression suite in Microsoft Edge
+  (`e2e/regression.spec.ts`) against its own server on port 3100 with in-memory data
 - `npm run typecheck`: type-check API and portal
+
+## Code layout (web)
+
+- `web/src/components/`: reusable UI (dialogs, tabs, fields, MUI dropdowns, feedback,
+  crash guard, icons), all imported from `./components`
+- `web/src/hooks.ts`: `useAction` (busy / error / success state) and `usePolling`
+- `web/src/workflows/`: one file per workflow screen

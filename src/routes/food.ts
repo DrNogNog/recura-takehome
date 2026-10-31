@@ -12,9 +12,34 @@ foodRouter.get(
   handle(async (req, res) => {
     const tags = req.query.tags ? String(req.query.tags).split(",").filter(Boolean) : undefined;
     const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : undefined;
-    const items = await svc.searchItems({ text: req.query.q ? String(req.query.q) : undefined, maxPrice, tags });
+    if (maxPrice !== undefined && !(maxPrice >= 0)) throw new HttpError(400, "maxPrice must be a number");
+    const text = req.query.q ? String(req.query.q).slice(0, 200) : undefined;
+    const items = await svc.searchItems({ text, maxPrice, tags }, req.user!.id);
     res.setHeader("Cache-Control", "private, max-age=60");
     res.json({ items });
+  })
+);
+
+/** Personal catalog: scrape one link into it, list it, remove items. */
+foodRouter.post(
+  "/catalog/scrape",
+  handle(async (req, res) => {
+    res.status(201).json(await svc.scrapeIntoPersonalCatalog(req.user!.id, req.body?.url));
+  })
+);
+
+foodRouter.get(
+  "/catalog",
+  handle(async (req, res) => {
+    res.json({ items: await svc.personalCatalog(req.user!.id) });
+  })
+);
+
+foodRouter.delete(
+  "/catalog/:id",
+  handle(async (req, res) => {
+    await svc.removePersonalItem(req.user!.id, String(req.params.id));
+    res.status(204).end();
   })
 );
 

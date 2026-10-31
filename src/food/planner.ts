@@ -118,3 +118,39 @@ export function planHeuristically(dates: string[], settings: PlanSettings, candi
 }
 
 export const aiEnabled = () => config.anthropicEnabled;
+
+const STEP = 0.25; // servings move in quarter steps
+const MAX_TWEAKS = 24;
+
+/**
+ * Nudges servings so each day lands within ~1% of the calorie target. Picks, one step at
+ * a time, the single quarter-serving change that brings the day closest to target, and
+ * stops when it's close enough or no change helps. Works on Claude's plans and the
+ * offline planner's alike.
+ */
+export function tuneCalories(days: PlanDay[], target: number, candidates: FoodItem[]): PlanDay[] {
+  const kcal = new Map(candidates.map((c) => [c.id, c.nutrients.calories]));
+  const tolerance = target * 0.01;
+  return days.map((day) => {
+    const meals = day.meals.map((m) => ({ ...m, ingredients: m.ingredients.map((i) => ({ ...i })) }));
+    const total = () => meals.reduce((s, m) => s + m.ingredients.reduce((t, i) => t + (kcal.get(i.itemId) ?? 0) * i.servings, 0), 0);
+    for (let n = 0; n < MAX_TWEAKS; n++) {
+      const diff = target - total();
+      if (Math.abs(diff) <= tolerance) break;
+      let best: { ing: { servings: number }; delta: number; gap: number } | null = null;
+      for (const m of meals) {
+        for (const ing of m.ingredients) {
+          const per = kcal.get(ing.itemId) ?? 0;
+          if (per <= 0) continue;
+          const delta = diff > 0 ? STEP : -STEP;
+          if (ing.servings + delta < STEP) continue; // never drop an ingredient entirely
+          const gap = Math.abs(diff - per * delta);
+          if (!best || gap < best.gap) best = { ing, delta, gap };
+        }
+      }
+      if (!best || best.gap >= Math.abs(diff)) break; // no single step gets closer
+      best.ing.servings = +(best.ing.servings + best.delta).toFixed(2);
+    }
+    return { ...day, meals };
+  });
+}

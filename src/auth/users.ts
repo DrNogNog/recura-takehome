@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 export type Role = "patient" | "doctor" | "manager" | "boss";
 
@@ -24,8 +25,21 @@ interface SeedUser {
 const seed: SeedUser[] = JSON.parse(readFileSync("seed/users.json", "utf8"));
 
 // Accounts created through Sign Up are kept in data/users.json (hashes only, not in git).
-const SIGNUPS_FILE = "data/users.json";
-const signups: User[] = existsSync(SIGNUPS_FILE) ? JSON.parse(readFileSync(SIGNUPS_FILE, "utf8")) : [];
+// DATA_DIR moves it, e.g. so the E2E tests write to a throwaway folder.
+const DATA_DIR = process.env.DATA_DIR ?? "data";
+const SIGNUPS_FILE = join(DATA_DIR, "users.json");
+function loadSignups(): User[] {
+  if (!existsSync(SIGNUPS_FILE)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(SIGNUPS_FILE, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    // A damaged file shouldn't stop the server; demo accounts still work.
+    console.error(`Couldn't read ${SIGNUPS_FILE} (${(e as Error).message}); starting without saved sign-ups.`);
+    return [];
+  }
+}
+const signups: User[] = loadSignups();
 
 const users: User[] = [
   ...seed.map(({ password, ...u }) => ({ ...u, passwordHash: bcrypt.hashSync(password, 10) })),
@@ -62,7 +76,7 @@ export async function createUser(input: { name: string; username: string; passwo
   };
   users.push(user);
   signups.push(user);
-  mkdirSync("data", { recursive: true });
+  mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(SIGNUPS_FILE, JSON.stringify(signups, null, 2));
   return user;
 }

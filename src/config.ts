@@ -32,6 +32,8 @@ export const config = {
 
   // Demo admin tools (see and move every patient's time). On for demos; set DEMO_ADMIN=off in production.
   demoAdmin: process.env.DEMO_ADMIN !== "off",
+  // Lets the scraper fetch private/local addresses. Only for the E2E tests' local fixture page.
+  allowPrivateScrape: process.env.ALLOW_PRIVATE_SCRAPE === "1",
 
   // Optional integrations; features degrade gracefully when unset.
   anthropicEnabled: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),

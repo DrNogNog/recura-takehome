@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { api, navigate, setToken, type User } from "./api";
-import { ErrorNote, Spinner } from "./components";
-import { IconLock, IconUser, ImageIcon } from "./icons";
+import { ErrorNote, IconField, IconUser, ImageIcon, PasswordField, Spinner } from "./components";
+import { useAction } from "./hooks";
 
 const POINTS: Array<[ReactNode, string]> = [
   [<ImageIcon key="a" file="appointment.png" />, "Appointments, check-in, and rescheduling"],
@@ -28,7 +28,7 @@ export function BrandLogo() {
 }
 
 /** Brand panel beside the login and sign-up forms. */
-export function AuthArt() {
+function AuthArt() {
   return (
     <aside className="auth-art">
       <BrandLogo />
@@ -49,89 +49,95 @@ export function AuthArt() {
   );
 }
 
-export function Login({ onLogin }: { onLogin: (u: User) => void }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await api<{ token: string; user: User }>("/api/auth/login", {
-        method: "POST",
-        json: { username, password },
-      });
-      setToken(r.token);
-      onLogin(r.user);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+/** Shared layout for the login and sign-up pages: brand panel + form card + a link to the other page. */
+export function AuthLayout({
+  titleId,
+  eyebrow,
+  title,
+  lede,
+  switchText,
+  switchLink,
+  switchTo,
+  children,
+}: {
+  titleId: string;
+  eyebrow: string;
+  title: string;
+  lede: string;
+  switchText: string;
+  switchLink: string;
+  switchTo: string;
+  children: ReactNode;
+}) {
+  const href = `${switchTo}${window.location.search}`;
   return (
     <main className="auth">
       <AuthArt />
       <section className="auth-panel">
-        <div className="auth-card" aria-labelledby="login-title">
-          <span className="eyebrow">Welcome to Recura</span>
-          <h1 id="login-title">Access Portal</h1>
-          <p className="lede">Log in with the correct information and choose your workflow.</p>
-
-          <form onSubmit={submit} className="stack">
-            <label>
-              Username
-              <span className="field">
-                <IconUser />
-                <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus />
-              </span>
-            </label>
-            <label>
-              Password
-              <span className="field">
-                <IconLock />
-                <input
-                  className="has-toggle"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
-                <button
-                  type="button"
-                  className="field-toggle"
-                  onClick={() => setShowPassword((s) => !s)}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </span>
-            </label>
-            <ErrorNote error={error} />
-            <button className="btn primary block lg" disabled={busy}>
-              {busy && <Spinner />}
-              {busy ? "Signing in" : "Sign in"}
-            </button>
-          </form>
-
+        <div className="auth-card" aria-labelledby={titleId}>
+          <span className="eyebrow">{eyebrow}</span>
+          <h1 id={titleId}>{title}</h1>
+          <p className="lede">{lede}</p>
+          {children}
           <div className="auth-switch">
-            <span>New to Recura?</span>
-            <a href={`/signup${window.location.search}`} onClick={(e) => (e.preventDefault(), navigate(`/signup${window.location.search}`))}>
-              Create an account →
+            <span>{switchText}</span>
+            <a href={href} onClick={(e) => (e.preventDefault(), navigate(href))}>
+              {switchLink} →
             </a>
           </div>
-          <p className="auth-hint">
-            Demo accounts are in <code>seed/users.json</code>
-          </p>
         </div>
       </section>
     </main>
+  );
+}
+
+export function Login({ onLogin, notice }: { onLogin: (u: User) => void; notice?: string | null }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const { busy, error, run } = useAction();
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    const r = await run("login", () => api<{ token: string; user: User }>("/api/auth/login", { method: "POST", json: { username: username.trim(), password } }));
+    if (r) {
+      setToken(r.token);
+      onLogin(r.user);
+    }
+  }
+
+  return (
+    <AuthLayout
+      titleId="login-title"
+      eyebrow="Welcome to Recura"
+      title="Access Portal"
+      lede="Log in with the correct information and choose your workflow."
+      switchText="New to Recura?"
+      switchLink="Create an account"
+      switchTo="/signup"
+    >
+      {notice && !error && (
+        <p className="badge warn session-note" role="status">
+          {notice}
+        </p>
+      )}
+      <form onSubmit={submit} className="stack">
+        <label>
+          Username
+          <IconField icon={<IconUser />} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required autoFocus />
+        </label>
+        <label>
+          Password
+          <PasswordField value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+        </label>
+        <ErrorNote error={error} />
+        <button className="btn primary block lg" disabled={busy !== null}>
+          {busy && <Spinner />}
+          {busy ? "Signing in" : "Sign in"}
+        </button>
+      </form>
+      <p className="auth-hint">
+        Demo accounts are in <code>seed/users.json</code>
+      </p>
+    </AuthLayout>
   );
 }

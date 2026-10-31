@@ -209,12 +209,25 @@ legend { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.4rem; }
 }
 .collapsed-line:focus-visible { outline: none; }
 
+/* Shared: action status line and the crash fallback. */
+.status-message:empty { display: none; }
+.status-message .badge { margin: 0 0 0.5rem; }
+.crash { display: grid; gap: 0.5rem; justify-items: start; border-color: var(--danger); }
+.crash h2 { margin: 0; }
+
+/* Food: personal catalog (scrape a store link). */
+.catalog-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; margin: 0.75rem 0; }
+.catalog-url { flex: 1 1 320px; }
+.catalog-form .btn { min-height: 46px; }
+.catalog-list { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+.catalog-list li { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.7rem 0; border-bottom: 1px solid var(--border); }
+
 /* Restock: actions menu button, add/edit and order dialogs. */
 .actions-btn { gap: 0.35rem; white-space: nowrap; }
 .shop-right { grid-auto-flow: row; }
-.supply-dialog { padding: 1.25rem 1.35rem 1.35rem; font-family: var(--font); color: var(--text); }
-.supply-dialog .modal-head { margin-bottom: 0.5rem; }
-.supply-dialog h2 { margin: 0; }
+.app-dialog { padding: 1.25rem 1.35rem 1.35rem; font-family: var(--font); color: var(--text); }
+.app-dialog .modal-head { margin-bottom: 0.5rem; }
+.app-dialog h2 { margin: 0; }
 .supply-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; }
 .supply-form fieldset { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem 1rem; padding: 0.9rem 0 0; border-top: 1px solid var(--border); }
 .supply-form fieldset:first-child { border-top: 0; padding-top: 0; }
@@ -804,8 +817,6 @@ td select { min-height: 36px; padding: 0.3rem 2rem 0.3rem 0.5rem; font-size: 0.8
 .innovations li { padding: 0.65rem 0; border-bottom: 1px solid var(--border); }
 .innovations p { margin: 0.2rem 0 0; }
 
-.modal { border: 1px solid var(--border); border-radius: 18px; padding: 1.35rem; width: min(560px, calc(100vw - 32px)); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); }
-.modal::backdrop { background: rgb(59 42 32 / 0.4); backdrop-filter: blur(3px); }
 .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 
 /* ---------- Food ---------- */

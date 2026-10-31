@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { ErrorNote, Meter, Spinner, Stat } from "../components";
-import { IconArrow, IconChevron } from "../icons";
+import { ErrorNote, IconArrow, IconChevron, Meter, Spinner, Stat } from "../components";
+import { PersonalCatalog } from "./PersonalCatalog";
 
 type Slot = "breakfast" | "lunch" | "dinner" | "snack";
 interface N {
@@ -425,6 +425,8 @@ export function FoodWorkflow({ onReady }: { onReady: () => void }) {
           <MarketSearch />
         </section>
       </div>
+
+      <PersonalCatalog />
     </div>
   );
 }

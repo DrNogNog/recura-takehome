@@ -5,8 +5,7 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import Divider from "@mui/material/Divider";
 import { api, navigate, type User } from "./api";
 import { BrandLogo } from "./Login";
-import { WorkflowSelect, workflowIcon } from "./WorkflowSelect";
-import { IconChart, IconGrid, IconHome, IconLogout, IconMenu, IconPlay } from "./icons";
+import { ErrorBoundary, ErrorNote, IconChart, IconGrid, IconHome, IconLogout, IconMenu, IconPlay, LoadingScreen, Spinner, workflowIcon, WorkflowSelect } from "./components";
 import { DemoAdminWorkflow } from "./workflows/Admin";
 
 /** Demo admin page: opened from the patient hamburger menu (not part of the workflow dropdown). */
@@ -15,7 +14,6 @@ const DEMO_ADMIN = {
   label: "Demo admin",
   description: "Set and switch patient times, and see every patient's schedule on a Gantt chart.",
 };
-import { ErrorNote, LoadingScreen, Spinner } from "./components";
 import { AppointmentWorkflow, CalculatorWorkflow, CheckInWorkflow, RescheduleWorkflow } from "./workflows/Appointment";
 import { RestockWorkflow } from "./workflows/Restock";
 import { FoodWorkflow } from "./workflows/Food";
@@ -277,7 +275,9 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
               {runningWorkflow && <p>{runningWorkflow.description}</p>}
             </div>
           </div>
-          <View onReady={ready} />
+          <ErrorBoundary label={runningWorkflow?.label ?? "this workflow"} onError={ready}>
+            <View onReady={ready} />
+          </ErrorBoundary>
         </main>
       ) : (
         // Picker page: choose a workflow, then Run workflow opens it as its own page.

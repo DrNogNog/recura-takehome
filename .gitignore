@@ -5,3 +5,5 @@ mobile/.expo/
 .env
 *.log
 data/
+test-results/
+playwright-report/

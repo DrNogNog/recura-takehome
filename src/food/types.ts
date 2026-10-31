@@ -23,6 +23,8 @@ export interface FoodItem {
   tags: string[];
   nutrientsEstimated: boolean;
   sourceUrl?: string;
+  /** Set for items a user scraped into their personal catalog; absent for the shared market. */
+  ownerId?: string;
   updatedAt: string;
 }
 

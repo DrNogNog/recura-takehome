@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import * as cheerio from "cheerio";
+import { fetchPublicHtml } from "../lib/safeFetch.js";
 import type { FoodItem, Nutrients } from "./types.js";
 
 /**
@@ -7,11 +8,13 @@ import type { FoodItem, Nutrients } from "./types.js";
  * schema.org Product data as JSON-LD, which is far more stable than their HTML,
  * so that's what this reads. Only point it at sites whose terms allow it.
  */
-export async function scrapeMarket(url: string, reference: FoodItem[]): Promise<FoodItem[]> {
-  const res = await fetch(url, { headers: { "User-Agent": "RecuraBot/0.1 (+meal planning)" } });
-  if (!res.ok) throw new Error(`Fetch ${url} failed: ${res.status}`);
-  const $ = cheerio.load(await res.text());
-  const market = new URL(url).hostname;
+const MAX_PRODUCTS = 100;
+
+export async function scrapeMarket(rawUrl: string, reference: FoodItem[], ownerId?: string): Promise<FoodItem[]> {
+  const { url: finalUrl, html } = await fetchPublicHtml(rawUrl);
+  const url = finalUrl.toString();
+  const $ = cheerio.load(html);
+  const market = finalUrl.hostname;
 
   const products: Array<{ name: string; price: number; category?: string }> = [];
   $('script[type="application/ld+json"]').each((_, el) => {
@@ -24,7 +27,10 @@ export async function scrapeMarket(url: string, reference: FoodItem[]): Promise<
         if (n?.["@type"] !== "Product" || !n.name) continue;
         const offer = Array.isArray(n.offers) ? n.offers[0] : n.offers;
         const price = Number(offer?.price ?? offer?.lowPrice);
-        if (price > 0) products.push({ name: String(n.name), price, category: n.category });
+        const name = String(n.name).replace(/\s+/g, " ").trim().slice(0, 120);
+        if (name && price > 0 && price < 10_000 && products.length < MAX_PRODUCTS) {
+          products.push({ name, price, category: typeof n.category === "string" ? n.category.slice(0, 40) : undefined });
+        }
       }
     } catch {
       // Malformed JSON-LD block; skip it.
@@ -34,7 +40,9 @@ export async function scrapeMarket(url: string, reference: FoodItem[]): Promise<
   return products.map((p) => {
     const match = estimateFrom(p.name, reference);
     return {
-      id: `scr-${createHash("sha1").update(`${market}|${p.name}`).digest("hex").slice(0, 12)}`,
+      // Personal items get their own id per owner, so two users scraping one page don't collide.
+      id: `scr-${createHash("sha1").update(`${ownerId ?? ""}|${market}|${p.name}`).digest("hex").slice(0, 12)}`,
+      ownerId,
       name: p.name,
       market,
       category: p.category ?? match?.category ?? "Other",

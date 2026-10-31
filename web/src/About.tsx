@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { SignUp, SiteFooter, SiteNav } from "./Home";
-import { ImageIcon } from "./icons";
+import { ImageIcon } from "./components";
 
 const VALUES: Array<[ReactNode, string, string]> = [
   [<ImageIcon key="a" file="appointment.png" size={26} />, "Patients first", "Every minute in a waiting room is a minute away from family. We show patients exactly when they'll be seen."],

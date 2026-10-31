@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 import { navigate } from "./api";
 import { BrandLogo } from "./Login";
-import { PhotoThumb, type PhotoFile } from "./Photo";
-import { IconArrow, IconChart, IconCheck, IconClock, IconPhone, IconShield, IconSparkle, ImageIcon } from "./icons";
+import { IconArrow, IconChart, IconCheck, IconClock, IconPhone, IconShield, IconSparkle, ImageIcon, type PhotoFile, PhotoThumb } from "./components";
 
 export const go = (path: string) => (e: React.MouseEvent) => {
   e.preventDefault();

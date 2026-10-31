@@ -4,9 +4,8 @@ import MenuItem from "@mui/material/MenuItem";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import Divider from "@mui/material/Divider";
 import { api, download, fmtDateTime, timeAgo } from "../api";
-import { ErrorNote, Modal, Spinner } from "../components";
-import { MenuSelect } from "../MenuSelect";
-import { IconBox, IconCheck, IconChevron, IconShield, IconSparkle, IconX } from "../icons";
+import { AppDialog, ErrorNote, IconBox, IconCheck, IconChevron, IconShield, IconSparkle, IconX, MenuSelect, Spinner, StatusMessage, Tabs } from "../components";
+import { useAction } from "../hooks";
 import { EXPENSE_LABELS, OrderDialog, SupplyFormDialog } from "./SupplyDialogs";
 
 interface Supply {
@@ -75,8 +74,7 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<Supply[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>();
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { error, notice, run, setError, setNotice } = useAction();
   const [innovationsFor, setInnovationsFor] = useState<Supply | null>(null);
   const [editing, setEditing] = useState<Supply | "new" | null>(null);
   const [ordering, setOrdering] = useState<{ item: Supply; suggested?: number } | null>(null);
@@ -98,15 +96,10 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
   }, [load, onReady]);
 
   async function act(item: Supply, path: string, json?: unknown, method = "POST", done?: string) {
-    setError(null);
-    setNotice(null);
-    try {
-      await api(`/api/supplies/${item.id}${path}`, { method, json });
+    const ok = await run(`${item.id}${path}`, () => api(`/api/supplies/${item.id}${path}`, { method, json }), done);
+    if (ok !== undefined) {
       await load();
       setRefreshKey((k) => k + 1);
-      if (done) setNotice(done);
-    } catch (e) {
-      setError((e as Error).message);
     }
   }
 
@@ -122,13 +115,8 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
 
   async function exportCsv() {
     setExporting(true);
-    try {
-      await download("/api/supplies/export/accounting.csv", `recura-supplies-${new Date().toISOString().slice(0, 10)}.csv`);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setExporting(false);
-    }
+    await run("export", () => download("/api/supplies/export/accounting.csv", `recura-supplies-${new Date().toISOString().slice(0, 10)}.csv`));
+    setExporting(false);
   }
 
   const alerts = {
@@ -160,17 +148,13 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
         <span className={`badge ${alerts.eol ? "warn" : "ok"}`}>{alerts.eol} past lifespan</span>
       </div>
 
-      <div className="tabs" role="tablist" aria-label="Supply views">
-        {(["inventory", "consumption", "shopping", "history"] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-            {{ inventory: "Supply list", consumption: "Consumption", shopping: "Shopping list", history: "Update history" }[t]}
-          </button>
-        ))}
-      </div>
-      <div aria-live="polite">
-        {notice && <p className="badge ok">{notice}</p>}
-      </div>
-      <ErrorNote error={error} />
+      <Tabs<Tab>
+        label="Supply views"
+        value={tab}
+        onChange={setTab}
+        items={{ inventory: "Supply list", consumption: "Consumption", shopping: "Shopping list", history: "Update history" }}
+      />
+      <StatusMessage notice={notice} error={error} />
 
       {tab === "inventory" && (
         <div className="table-wrap">
@@ -490,7 +474,7 @@ function Innovations({ item, onClose }: { item: Supply; onClose: () => void }) {
       .catch((e) => setError(e.message));
   }, [item]);
   return (
-    <Modal title={`Recent innovations: ${item.name}`} onClose={onClose}>
+    <AppDialog title={`Recent innovations: ${item.name}`} onClose={onClose}>
       <ErrorNote error={error} />
       {!data && !error && <Spinner />}
       {data && (
@@ -510,6 +494,6 @@ function Innovations({ item, onClose }: { item: Supply; onClose: () => void }) {
           )}
         </>
       )}
-    </Modal>
+    </AppDialog>
   );
 }

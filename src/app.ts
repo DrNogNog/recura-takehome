@@ -43,8 +43,12 @@ app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+app.use((err: Error & { type?: string; status?: number }, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
-  console.error(err);
-  res.status(500).json({ error: "Internal server error" });
+  // Errors from the JSON body parser: say what's wrong instead of a generic 500.
+  if (err.type === "entity.parse.failed") return res.status(400).json({ error: "The request body isn't valid JSON" });
+  if (err.type === "entity.too.large") return res.status(413).json({ error: "The request is too large" });
+  console.error(`[${req.method} ${req.originalUrl}]`, err);
+  // Never leak internals to the browser.
+  res.status(500).json({ error: "Something went wrong on the server. Try again." });
 });

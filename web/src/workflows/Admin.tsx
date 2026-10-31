@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { api, fmtTime } from "../api";
-import { ErrorNote, Spinner } from "../components";
-import { MenuSelect } from "../MenuSelect";
+import { ErrorNote, MenuSelect, Spinner, StatusMessage } from "../components";
+import { useAction, usePolling } from "../hooks";
 
 interface Appt {
   id: string;
@@ -37,41 +37,25 @@ const localDay = () => {
 export function DemoAdminWorkflow({ onReady }: { onReady: () => void }) {
   const [day, setDay] = useState(localDay);
   const [data, setData] = useState<Schedule | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [delayDraft, setDelayDraft] = useState<Record<string, number>>({});
+  const { busy, error, notice, run } = useAction();
 
   const load = useCallback(async () => {
     try {
       const s = await api<Schedule>(`/api/demo/schedule?day=${day}`);
       setData(s);
       setDelayDraft(Object.fromEntries(s.doctors.map((d) => [d.id, d.delayMinutes])));
-      setError(null);
+      setLoadError(null);
     } catch (e) {
-      setError((e as Error).message);
+      setLoadError((e as Error).message);
     }
   }, [day]);
 
-  useEffect(() => {
-    load().finally(onReady);
-    const t = setInterval(load, REFRESH_MS);
-    return () => clearInterval(t);
-  }, [load, onReady]);
+  const reload = usePolling(load, onReady, REFRESH_MS);
 
   async function act(key: string, fn: () => Promise<unknown>, done: string) {
-    setBusy(key);
-    setError(null);
-    setNotice(null);
-    try {
-      await fn();
-      setNotice(done);
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
+    if ((await run(key, fn, done)) !== undefined) await reload();
   }
 
   const setTime = (patientId: string, name: string, start: string) =>
@@ -80,10 +64,13 @@ export function DemoAdminWorkflow({ onReady }: { onReady: () => void }) {
   const swap = (a: { id: string; name: string }, bApptId: string, bName: string) =>
     act(`swap-${a.id}`, () => api("/api/demo/swap", { method: "POST", json: { a: a.id, b: bApptId } }), `Switched times: ${a.name} ⇄ ${bName}.`);
 
-  const applyDelay = (doctorId: string, name: string) =>
-    act(`delay-${doctorId}`, () => api("/api/demo/delay", { method: "POST", json: { doctorId, day, minutes: delayDraft[doctorId] ?? 0 } }), `${name} is now running ${delayDraft[doctorId] ?? 0} min behind.`);
+  const applyDelay = (doctorId: string, name: string) => {
+    const minutes = Math.round(delayDraft[doctorId] ?? 0);
+    if (!Number.isFinite(minutes) || minutes < 0 || minutes > 240) return run(`delay-${doctorId}`, () => Promise.reject(new Error("Delay must be between 0 and 240 minutes")));
+    return act(`delay-${doctorId}`, () => api("/api/demo/delay", { method: "POST", json: { doctorId, day, minutes } }), `${name} is now running ${minutes} min behind.`);
+  };
 
-  if (!data) return <ErrorNote error={error} />;
+  if (!data) return <ErrorNote error={loadError} />;
 
   const holderBySlot = new Map(data.patients.filter((p) => p.appointment).map((p) => [p.appointment!.actualAppointment, p.name]));
   const booked = data.patients.filter((p) => p.appointment);
@@ -125,10 +112,7 @@ export function DemoAdminWorkflow({ onReady }: { onReady: () => void }) {
         <p className="muted small admin-note">Demo tools: changes here update every patient's own screens right away.</p>
       </section>
 
-      <div aria-live="polite">
-        {notice && <p className="badge ok">{notice}</p>}
-        <ErrorNote error={error} />
-      </div>
+      <StatusMessage notice={notice} error={error ?? loadError} />
 
       <Gantt data={data} />
 

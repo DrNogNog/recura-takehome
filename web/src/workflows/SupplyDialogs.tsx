@@ -1,9 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from "react";
-import Dialog from "@mui/material/Dialog";
+import { useState, type FormEvent } from "react";
 import { api } from "../api";
-import { ErrorNote, Spinner } from "../components";
-import { IconX } from "../icons";
-import { MenuSelect } from "../MenuSelect";
+import { AppDialog, ErrorNote, MenuSelect, Spinner } from "../components";
+import { useAction } from "../hooks";
 
 /** The stored fields of a supply item (what the add/edit form works with). */
 export interface SupplyFields {
@@ -36,22 +34,6 @@ export const EXPENSE_LABELS = [
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-function DialogShell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth aria-labelledby="supply-dialog-title" slotProps={{ paper: { sx: { borderRadius: "20px", backgroundImage: "none" } } }}>
-      <div className="supply-dialog">
-        <header className="modal-head">
-          <h2 id="supply-dialog-title">{title}</h2>
-          <button type="button" className="btn ghost" onClick={onClose} aria-label="Close">
-            <IconX />
-          </button>
-        </header>
-        {children}
-      </div>
-    </Dialog>
-  );
-}
-
 /** Add a new supply (item undefined) or edit an existing one. */
 export function SupplyFormDialog({ item, onClose, onSaved }: { item?: SupplyFields; onClose: () => void; onSaved: (msg: string) => void }) {
   const [f, setF] = useState(() => ({
@@ -75,14 +57,11 @@ export function SupplyFormDialog({ item, onClose, onSaved }: { item?: SupplyFiel
     sterilizeAfterEachUse: item?.sterilizeAfterEachUse ?? false,
     lastSterilizedDate: item?.lastSterilizedDate ?? "",
   }));
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { busy, error, run } = useAction();
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((prev) => ({ ...prev, [k]: v }));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setSaving(true);
-    setError(null);
     const body = {
       name: f.name,
       category: f.category,
@@ -102,18 +81,12 @@ export function SupplyFormDialog({ item, onClose, onSaved }: { item?: SupplyFiel
       sterilizeAfterEachUse: f.requiresSterilization && f.sterilizeAfterEachUse,
       ...(f.requiresSterilization ? { lastSterilizedDate: f.lastSterilizedDate || null } : {}),
     };
-    try {
-      if (item) await api(`/api/supplies/${item.id}`, { method: "PATCH", json: body });
-      else await api("/api/supplies", { method: "POST", json: body });
-      onSaved(item ? `Saved changes to ${f.name}.` : `Added ${f.name} to the supply list.`);
-    } catch (err) {
-      setError((err as Error).message);
-      setSaving(false);
-    }
+    const ok = await run("save", () => (item ? api(`/api/supplies/${item.id}`, { method: "PATCH", json: body }) : api("/api/supplies", { method: "POST", json: body })));
+    if (ok) onSaved(item ? `Saved changes to ${f.name.trim()}.` : `Added ${f.name.trim()} to the supply list.`);
   }
 
   return (
-    <DialogShell title={item ? `Edit ${item.name}` : "Add a supply"} onClose={onClose}>
+    <AppDialog title={item ? `Edit ${item.name}` : "Add a supply"} onClose={onClose}>
       <form onSubmit={submit} className="supply-form">
         <fieldset>
           <legend>Item</legend>
@@ -230,12 +203,12 @@ export function SupplyFormDialog({ item, onClose, onSaved }: { item?: SupplyFiel
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={saving}>
-            {saving && <Spinner />} {item ? "Save changes" : "Add supply"}
+          <button className="btn primary" disabled={busy !== null}>
+            {busy && <Spinner />} {item ? "Save changes" : "Add supply"}
           </button>
         </div>
       </form>
-    </DialogShell>
+    </AppDialog>
   );
 }
 
@@ -253,25 +226,20 @@ export function OrderDialog({
 }) {
   const [qty, setQty] = useState(String(suggested ?? Math.max(1, item.reorderThreshold * 2 - item.quantity)));
   const [cost, setCost] = useState(String(item.unitCost));
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { busy, error, run, setError } = useAction();
   const total = (Number(qty) || 0) * (Number(cost) || 0);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setSaving(true);
-    setError(null);
-    try {
-      await api(`/api/supplies/${item.id}/order`, { method: "POST", json: { quantity: Number(qty), unitCost: Number(cost) } });
-      onOrdered(`Ordered ${qty} ${item.unit} of ${item.name}. Stock is now ${item.quantity + Number(qty)}.`);
-    } catch (err) {
-      setError((err as Error).message);
-      setSaving(false);
-    }
+    const q = Number(qty);
+    if (!Number.isInteger(q) || q < 1) return setError("Enter a whole number of at least 1");
+    if (!(Number(cost) >= 0)) return setError("Unit cost can't be negative");
+    const ok = await run("order", () => api(`/api/supplies/${item.id}/order`, { method: "POST", json: { quantity: q, unitCost: Number(cost) } }));
+    if (ok) onOrdered(`Ordered ${q} ${item.unit} of ${item.name}. Stock is now ${item.quantity + q}.`);
   }
 
   return (
-    <DialogShell title={`Order more ${item.name}`} onClose={onClose}>
+    <AppDialog title={`Order more ${item.name}`} onClose={onClose}>
       <form onSubmit={submit} className="supply-form">
         <p className="muted span2 order-meta">
           From{" "}
@@ -305,11 +273,11 @@ export function OrderDialog({
           <button type="button" className="btn ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn primary" disabled={saving}>
-            {saving && <Spinner />} Place order
+          <button className="btn primary" disabled={busy !== null}>
+            {busy && <Spinner />} Place order
           </button>
         </div>
       </form>
-    </DialogShell>
+    </AppDialog>
   );
 }

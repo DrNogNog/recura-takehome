@@ -4,7 +4,7 @@ import { config } from "../config.js";
 import { TtlCache } from "../lib/cache.js";
 import { HttpError } from "../lib/http.js";
 import { JobQueue } from "../lib/queue.js";
-import { aiEnabled, planHeuristically, planWithClaude } from "./planner.js";
+import { aiEnabled, planHeuristically, planWithClaude, tuneCalories } from "./planner.js";
 import { scrapeMarket } from "./scraper.js";
 import {
   DynamoFoodStore, ElasticFoodSearch, MemoryFoodSearch, MemoryFoodStore,
@@ -32,7 +32,7 @@ const updates = new JobQueue<FoodJob>("food-updates", async (job) => {
     itemCache.set(job.item.id, job.item);
     searchCache.clear();
   } else {
-    const reference = await store.allItems();
+    const reference = (await store.allItems()).filter((i) => !i.ownerId);
     for (const item of await scrapeMarket(job.url, reference)) updates.send({ kind: "upsert", item });
   }
 });
@@ -71,9 +71,53 @@ export function queueScrape(urls = config.foodMarketUrls) {
 
 export const queueStatus = () => updates.status();
 
-export function searchItems(q: { text?: string; maxPrice?: number; tags?: string[] }) {
-  const key = JSON.stringify(q);
-  return searchCache.getOrSet(key, () => search.search(q));
+/** Shared market items plus `ownerId`'s personal catalog. */
+export function searchItems(q: { text?: string; maxPrice?: number; tags?: string[] }, ownerId?: string) {
+  const key = JSON.stringify({ ...q, ownerId });
+  return searchCache.getOrSet(key, () => search.search({ ...q, ownerId }));
+}
+
+const MAX_PERSONAL_ITEMS = 300;
+
+/**
+ * Scrapes one link and adds its products to the user's personal catalog (visible only
+ * to them, and used in their meal plans). Runs now rather than through the queue so
+ * the page can show what was added.
+ */
+export async function scrapeIntoPersonalCatalog(userId: string, url: unknown) {
+  if (typeof url !== "string" || !url.trim()) throw new HttpError(400, "Paste a link to a store page first");
+  if (url.length > 2000) throw new HttpError(400, "That link is too long");
+  const all = await store.allItems();
+  const mine = all.filter((i) => i.ownerId === userId);
+  const found = await scrapeMarket(url, all.filter((i) => !i.ownerId), userId);
+  if (!found.length) {
+    throw new HttpError(422, "No products with prices were found on that page. Try a product or category page from the store.");
+  }
+  const mineIds = new Set(mine.map((i) => i.id));
+  const fresh = found.filter((i) => !mineIds.has(i.id));
+  if (mine.length + fresh.length > MAX_PERSONAL_ITEMS) {
+    throw new HttpError(422, `Your personal catalog can hold ${MAX_PERSONAL_ITEMS} items. Remove some first.`);
+  }
+  for (const item of found) {
+    await store.putItem(item);
+    await search.index(item);
+    itemCache.set(item.id, item);
+  }
+  searchCache.clear();
+  return { added: fresh.length, updated: found.length - fresh.length, items: found };
+}
+
+export async function personalCatalog(userId: string) {
+  return (await store.allItems()).filter((i) => i.ownerId === userId).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function removePersonalItem(userId: string, id: string) {
+  const item = await store.getItem(id);
+  if (!item || item.ownerId !== userId) throw new HttpError(404, "That item isn't in your personal catalog");
+  await store.deleteItem(id);
+  await search.remove(id);
+  itemCache.delete(id);
+  searchCache.clear();
 }
 
 async function getItem(id: string) {
@@ -180,8 +224,8 @@ export async function fillPlan(
   if (dates.length) {
     // Retrieval step: pull the most relevant affordable items for the generator.
     const maxPrice = (settings.weeklyBudget / 7) * 0.5;
-    let candidates = await searchItems({ text: settings.preferences, maxPrice, tags: settings.tags });
-    if (candidates.length < 8) candidates = await searchItems({ text: settings.preferences, tags: settings.tags });
+    let candidates = await searchItems({ text: settings.preferences, maxPrice, tags: settings.tags }, userId);
+    if (candidates.length < 8) candidates = await searchItems({ text: settings.preferences, tags: settings.tags }, userId);
     if (!candidates.length) throw new HttpError(422, "No market items match those dietary needs");
 
     const habits = await eatingHabits(userId);
@@ -198,7 +242,7 @@ export async function fillPlan(
     } else {
       generated = planHeuristically(dates, settings, candidates);
     }
-    for (const d of generated.days) cal.days[d.date] = d;
+    for (const d of tuneCalories(generated.days, settings.dailyCalories, candidates)) cal.days[d.date] = d;
     cal.notes = generated.notes;
     cal.generatedBy = generatedBy;
   }

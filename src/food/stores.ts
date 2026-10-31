@@ -1,5 +1,5 @@
 import { CreateTableCommand, DescribeTableCommand, DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DeleteCommand, DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { Client as Elastic } from "@elastic/elasticsearch";
 import { config } from "../config.js";
 import type { FoodItem, MealCalendar } from "./types.js";
@@ -9,6 +9,7 @@ export interface FoodStore {
   putItem(item: FoodItem): Promise<void>;
   getItem(id: string): Promise<FoodItem | undefined>;
   allItems(): Promise<FoodItem[]>;
+  deleteItem(id: string): Promise<void>;
   getCalendar(userId: string): Promise<MealCalendar | undefined>;
   putCalendar(cal: MealCalendar): Promise<void>;
 }
@@ -16,7 +17,9 @@ export interface FoodStore {
 /** Full-text search over food items (Elasticsearch in production). */
 export interface FoodSearch {
   index(item: FoodItem): Promise<void>;
-  search(q: { text?: string; maxPrice?: number; tags?: string[]; size?: number }): Promise<FoodItem[]>;
+  remove(id: string): Promise<void>;
+  /** Shared market items, plus `ownerId`'s personal items when given. */
+  search(q: { text?: string; maxPrice?: number; tags?: string[]; size?: number; ownerId?: string }): Promise<FoodItem[]>;
 }
 
 export class MemoryFoodStore implements FoodStore {
@@ -32,6 +35,9 @@ export class MemoryFoodStore implements FoodStore {
   async allItems() {
     return [...this.items.values()].map((i) => structuredClone(i));
   }
+  async deleteItem(id: string) {
+    this.items.delete(id);
+  }
   async getCalendar(userId: string) {
     const c = this.calendars.get(userId);
     return c && structuredClone(c);
@@ -46,9 +52,13 @@ export class MemoryFoodSearch implements FoodSearch {
   async index(item: FoodItem) {
     this.items.set(item.id, item);
   }
-  async search({ text, maxPrice, tags, size = 40 }: Parameters<FoodSearch["search"]>[0]) {
+  async remove(id: string) {
+    this.items.delete(id);
+  }
+  async search({ text, maxPrice, tags, size = 40, ownerId }: Parameters<FoodSearch["search"]>[0]) {
     const words = (text ?? "").toLowerCase().split(/\W+/).filter((w) => w.length > 2);
     return [...this.items.values()]
+      .filter((i) => !i.ownerId || i.ownerId === ownerId)
       .filter((i) => maxPrice === undefined || i.price <= maxPrice)
       .filter((i) => !tags?.length || tags.every((t) => i.tags.includes(t)))
       .map((i) => {
@@ -121,6 +131,9 @@ export class DynamoFoodStore implements FoodStore {
     } while (start);
     return out;
   }
+  async deleteItem(id: string) {
+    await this.doc.send(new DeleteCommand({ TableName: this.table, Key: { PK: `ITEM#${id}`, SK: "META" } }));
+  }
   async getCalendar(userId: string) {
     const r = await this.doc.send(
       new GetCommand({ TableName: this.table, Key: { PK: `USER#${userId}`, SK: "CALENDAR" }, ConsistentRead: true })
@@ -150,6 +163,7 @@ export class ElasticFoodSearch implements FoodSearch {
             tags: { type: "keyword" },
             price: { type: "float" },
             market: { type: "keyword" },
+            ownerId: { type: "keyword" },
           },
         },
       });
@@ -162,8 +176,14 @@ export class ElasticFoodSearch implements FoodSearch {
     await this.es.index({ index: ElasticFoodSearch.INDEX, id: item.id, document: item, refresh: "wait_for" });
   }
 
-  async search({ text, maxPrice, tags, size = 40 }: Parameters<FoodSearch["search"]>[0]) {
-    const filter: object[] = [];
+  async remove(id: string) {
+    await this.es.delete({ index: ElasticFoodSearch.INDEX, id, refresh: "wait_for" }).catch(() => undefined);
+  }
+
+  async search({ text, maxPrice, tags, size = 40, ownerId }: Parameters<FoodSearch["search"]>[0]) {
+    // Shared items have no ownerId; personal items only match their owner.
+    const owner = [{ bool: { must_not: { exists: { field: "ownerId" } } } }, ...(ownerId ? [{ term: { ownerId } }] : [])];
+    const filter: object[] = [{ bool: { should: owner, minimum_should_match: 1 } }];
     if (maxPrice !== undefined) filter.push({ range: { price: { lte: maxPrice } } });
     for (const t of tags ?? []) filter.push({ term: { tags: t } });
     const r = await this.es.search<FoodItem>({

@@ -30,6 +30,10 @@ export class TtlCache<V> {
     return value;
   }
 
+  delete(key: string) {
+    this.map.delete(key);
+  }
+
   clear() {
     this.map.clear();
   }
