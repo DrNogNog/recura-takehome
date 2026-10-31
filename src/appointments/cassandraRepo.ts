@@ -163,6 +163,15 @@ export class CassandraAppointmentRepo implements AppointmentRepo {
     return r.rows.map((row) => row.slot_start.toISOString());
   }
 
+  async slotHolders(doctorId: string, day: string) {
+    const r = await this.client.execute(
+      "SELECT slot_start, appointment_id FROM doctor_slots WHERE doctor_id = ? AND day = ?",
+      [doctorId, day],
+      opts
+    );
+    return r.rows.map((row) => ({ slotStart: row.slot_start.toISOString(), appointmentId: row.appointment_id }));
+  }
+
   async getDelay(doctorId: string, day: string) {
     const r = await this.client.execute(
       "SELECT delay_min, updated_at FROM doctor_delays WHERE doctor_id = ? AND day = ?",

@@ -54,6 +54,13 @@ export class MemoryAppointmentRepo implements AppointmentRepo {
       .map(([, start]) => start);
   }
 
+  async slotHolders(doctorId: string, day: string) {
+    return [...this.slots.entries()]
+      .map(([key, appointmentId]) => ({ key: key.split("|"), appointmentId }))
+      .filter(({ key: [d, start] }) => d === doctorId && dayOf(start) === day)
+      .map(({ key: [, slotStart], appointmentId }) => ({ slotStart, appointmentId }));
+  }
+
   async getDelay(doctorId: string, day: string) {
     return this.delays.get(`${doctorId}|${day}`) ?? { minutes: 0 };
   }

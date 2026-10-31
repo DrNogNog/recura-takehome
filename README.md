@@ -39,6 +39,13 @@ and Elasticsearch, with every workflow switched to its real datastore.
 - Apple Watch: compact payload at `GET /api/watch/appointment`
 - Staff report a doctor running late with `POST /api/appointments/delays`
 
+#### Demo admin (patient menu ☰ → Demo admin)
+- Gantt chart of every patient's booked and expected time for a day, with a live "now" line
+- Set any patient's time, switch two patients' times, and set the doctor's running delay
+- Uses the same slot claims as patient reschedules, so it can't double book
+- API under `/api/demo` (`GET /schedule`, `POST /patients/:id/time`, `POST /swap`, `POST /delay`).
+  Any signed-in account can use it; set `DEMO_ADMIN=off` to disable it outside demos
+
 ### 2. Restock medical supplies (staff)
 - Supply list with supplier, lifespan, usage date, reorder date, last sterilized, and "sterilize after every appointment"
 - Expense label (defaults to business expense), estimate and unorganized flags
@@ -51,7 +58,8 @@ and Elasticsearch, with every workflow switched to its real datastore.
 - Scrapes local market pages (`FOOD_MARKET_URLS`, schema.org JSON-LD) through a job queue
 - RAG: market items are retrieved from search, Claude picks meals from only those items,
   then the app computes calories, cost, macros, and micronutrients from stored item data
-- Advent-calendar week: fill one day or the whole week in one click
+- Month calendar that follows today's date (past days greyed out): plan one day, or fill the
+  rest of the month in one click
 - Log meals as eaten or skipped to estimate real eating habits; future plans adapt to them
 - Without `ANTHROPIC_API_KEY`, an offline planner is used
 

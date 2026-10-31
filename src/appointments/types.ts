@@ -23,6 +23,8 @@ export interface AppointmentRepo {
   claimSlot(doctorId: string, slotStart: string, appointmentId: string): Promise<boolean>;
   releaseSlot(doctorId: string, slotStart: string, appointmentId: string): Promise<void>;
   takenSlots(doctorId: string, day: string): Promise<string[]>;
+  /** Who holds each taken slot for a doctor on a day (for the demo admin schedule). */
+  slotHolders(doctorId: string, day: string): Promise<Array<{ slotStart: string; appointmentId: string }>>;
   getDelay(doctorId: string, day: string): Promise<{ minutes: number; updatedAt?: string }>;
   setDelay(doctorId: string, day: string, minutes: number): Promise<void>;
 }

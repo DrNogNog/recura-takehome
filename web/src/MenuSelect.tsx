@@ -10,6 +10,7 @@ export interface MenuOption {
   label: string;
   description?: string;
   icon?: ReactNode;
+  disabled?: boolean;
 }
 
 /**
@@ -80,6 +81,7 @@ export function MenuSelect({
               key={o.id}
               role="option"
               selected={isSelected}
+              disabled={o.disabled}
               aria-selected={isSelected}
               onClick={() => {
                 onChange(o.id);

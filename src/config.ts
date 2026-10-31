@@ -30,6 +30,9 @@ export const config = {
   },
   elasticsearchUrl: process.env.ELASTICSEARCH_URL ?? "http://localhost:9200",
 
+  // Demo admin tools (see and move every patient's time). On for demos; set DEMO_ADMIN=off in production.
+  demoAdmin: process.env.DEMO_ADMIN !== "off",
+
   // Optional integrations; features degrade gracefully when unset.
   anthropicEnabled: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
   googleApiKey: process.env.GOOGLE_API_KEY,

@@ -44,6 +44,10 @@ export function listPatients(): User[] {
   return users.filter((u) => u.role === "patient");
 }
 
+export function listDoctors(): User[] {
+  return users.filter((u) => u.role === "doctor");
+}
+
 /** Account types anyone can pick on the Sign Up page. */
 export const SIGNUP_ROLES = ["patient", "manager"] as const;
 export type SignupRole = (typeof SIGNUP_ROLES)[number];

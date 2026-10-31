@@ -6,7 +6,15 @@ import Divider from "@mui/material/Divider";
 import { api, navigate, type User } from "./api";
 import { BrandLogo } from "./Login";
 import { WorkflowSelect, workflowIcon } from "./WorkflowSelect";
-import { IconGrid, IconHome, IconLogout, IconMenu, IconPlay } from "./icons";
+import { IconChart, IconGrid, IconHome, IconLogout, IconMenu, IconPlay } from "./icons";
+import { DemoAdminWorkflow } from "./workflows/Admin";
+
+/** Demo admin page: opened from the patient hamburger menu (not part of the workflow dropdown). */
+const DEMO_ADMIN = {
+  id: "admin",
+  label: "Demo admin",
+  description: "Set and switch patient times, and see every patient's schedule on a Gantt chart.",
+};
 import { ErrorNote, LoadingScreen, Spinner } from "./components";
 import { AppointmentWorkflow, CalculatorWorkflow, CheckInWorkflow, RescheduleWorkflow } from "./workflows/Appointment";
 import { RestockWorkflow } from "./workflows/Restock";
@@ -21,6 +29,7 @@ const VIEWS: Record<User["portal"], Record<string, WorkflowView>> = {
     checkin: CheckInWorkflow,
     reschedule: RescheduleWorkflow,
     calculator: CalculatorWorkflow,
+    admin: DemoAdminWorkflow, // opened from the hamburger menu, not the dropdown
   },
   staff: {
     restock: RestockWorkflow,
@@ -133,6 +142,22 @@ function AccountMenu({
             {w.label}
           </MenuItem>
         ))}
+        {user.portal === "patient" && <Divider />}
+        {user.portal === "patient" && (
+          <MenuItem
+            selected={running === DEMO_ADMIN.id}
+            onClick={() => {
+              close();
+              onOpenWorkflow(DEMO_ADMIN.id);
+            }}
+          >
+            <ListItemIcon>
+              <IconChart />
+            </ListItemIcon>
+            {DEMO_ADMIN.label}
+            <span className="menu-badge">Demo</span>
+          </MenuItem>
+        )}
         <Divider />
         <MenuItem
           onClick={() => {
@@ -208,7 +233,7 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
   }
 
   const View = running ? VIEWS[user.portal][running] : undefined;
-  const runningWorkflow = workflows?.find((w) => w.id === running);
+  const runningWorkflow = running === DEMO_ADMIN.id ? DEMO_ADMIN : workflows?.find((w) => w.id === running);
   const current = workflows?.find((w) => w.id === selected);
   const ready = useCallback(() => setLoading(false), []);
 
@@ -246,7 +271,7 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
         // Workflow page: the picker is gone; the hamburger menu leads back to it.
         <main className="content" key={running}>
           <div className="wf-page-head">
-            <span className="wf-page-icon">{workflowIcon(running, 30)}</span>
+            <span className="wf-page-icon">{running === DEMO_ADMIN.id ? <IconChart size={28} /> : workflowIcon(running, 30)}</span>
             <div>
               <h1>{runningWorkflow?.label ?? "Workflow"}</h1>
               {runningWorkflow && <p>{runningWorkflow.description}</p>}

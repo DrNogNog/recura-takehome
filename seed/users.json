@@ -1,6 +1,10 @@
 [
   { "id": "p1", "username": "patient", "name": "Alex Rivera", "role": "patient", "password": "patient123" },
   { "id": "p2", "username": "patient2", "name": "Sam Chen", "role": "patient", "password": "patient123" },
+  { "id": "p3", "username": "patient3", "name": "Priya Nair", "role": "patient", "password": "patient123" },
+  { "id": "p4", "username": "patient4", "name": "Marcus Johnson", "role": "patient", "password": "patient123" },
+  { "id": "p5", "username": "patient5", "name": "Elena Garcia", "role": "patient", "password": "patient123" },
+  { "id": "p6", "username": "patient6", "name": "Kofi Mensah", "role": "patient", "password": "patient123" },
   { "id": "d1", "username": "doctor", "name": "Dr. Morgan Lee", "role": "doctor", "password": "doctor123" },
   { "id": "m1", "username": "manager", "name": "Jordan Patel", "role": "manager", "password": "manager123" },
   { "id": "b1", "username": "boss", "name": "Taylor Brooks", "role": "boss", "password": "boss123" }
