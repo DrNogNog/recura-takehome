@@ -1,0 +1,7 @@
+node_modules/
+dist/
+web/dist/
+mobile/.expo/
+.env
+*.log
+data/

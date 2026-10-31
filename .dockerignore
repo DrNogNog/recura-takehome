@@ -1,0 +1,8 @@
+node_modules
+web/node_modules
+mobile
+dist
+web/dist
+.env
+.git
+data

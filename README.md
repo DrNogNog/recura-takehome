@@ -1,0 +1,69 @@
+# Recura
+
+Clinic portal built on **P**ostgreSQL, **E**xpress, **T**ypeScript, and **N**ode.js, with a React web portal.
+Patients and staff (doctor, manager, boss) sign in, pick a workflow from a dropdown, and click **Run workflow**.
+
+## Quick start (no databases needed)
+
+```bash
+npm install
+npm --prefix web install
+npm run dev          # API on :3000, portal on http://localhost:5173
+```
+
+Every workflow runs on in-memory storage by default. Demo accounts are in `seed/users.json`.
+
+## Full stack (Docker)
+
+```bash
+docker compose up --build   # portal at http://localhost:8080
+```
+
+This starts 3 API instances behind an nginx load balancer, plus Postgres, Cassandra, DynamoDB Local,
+and Elasticsearch, with every workflow switched to its real datastore.
+
+## Workflows
+
+| Portal | Workflow | Storage |
+|---|---|---|
+| Patient | My appointment | Cassandra |
+| Staff | Restock medical supplies | Postgres + CDN cache headers + leader election |
+| Staff | Get food recommendations | DynamoDB + Elasticsearch + queue + cache, Claude for AI |
+
+### 1. My appointment (patient)
+- Arrival calculator (inside the timeframe?) and minutes-late calculator: `POST /api/calculators/arrival`, `/minutes-late`
+- Actual appointment `GET /api/appointments/:id/actual`, expected after delays `.../expected`
+- Check-in `POST .../check-in`, status `GET .../status`
+- Reschedule with no double booking: slots are claimed atomically (Cassandra `IF NOT EXISTS`)
+- Read-heavy polling: ETag + `Last-Modified` + 15s private cache, so repeat checks return 304
+- Apple Watch: compact payload at `GET /api/watch/appointment`
+- Staff report a doctor running late with `POST /api/appointments/delays`
+
+### 2. Restock medical supplies (staff)
+- Supply list with supplier, lifespan, usage date, reorder date, last sterilized, and "sterilize after every appointment"
+- Expense label (defaults to business expense), estimate and unorganized flags
+- Consumption rate per location, shopping list, full update history
+- Export to accounting (CSV)
+- Recent innovations popup via Google Programmable Search (`GOOGLE_API_KEY`, `GOOGLE_CSE_ID`)
+- Mobile shopping list: Expo app in `mobile/` (`cd mobile && npm install && npx expo start`)
+
+### 3. Food recommendations (staff)
+- Scrapes local market pages (`FOOD_MARKET_URLS`, schema.org JSON-LD) through a job queue
+- RAG: market items are retrieved from search, Claude picks meals from only those items,
+  then the app computes calories, cost, macros, and micronutrients from stored item data
+- Advent-calendar week: fill one day or the whole week in one click
+- Log meals as eaten or skipped to estimate real eating habits; future plans adapt to them
+- Without `ANTHROPIC_API_KEY`, an offline planner is used
+
+## Configuration
+
+See `.env.example`. Set `APPOINTMENTS_STORE`, `SUPPLIES_STORE`, and `FOOD_STORE` to `external`
+to use the real datastores.
+
+## Scripts
+
+- `npm run dev`: API and portal with hot reload
+- `npm run build` / `npm run build:web`: compile the API / portal (the API serves `web/dist`)
+- `npm start`: run the compiled API
+- `npm test`: unit tests
+- `npm run typecheck`: type-check API and portal

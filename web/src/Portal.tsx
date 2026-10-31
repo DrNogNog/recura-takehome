@@ -1,0 +1,290 @@
+import { useCallback, useEffect, useId, useState } from "react";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Divider from "@mui/material/Divider";
+import { api, navigate, type User } from "./api";
+import { BrandLogo } from "./Login";
+import { WorkflowSelect, workflowIcon } from "./WorkflowSelect";
+import { IconGrid, IconHome, IconLogout, IconMenu, IconPlay } from "./icons";
+import { ErrorNote, LoadingScreen, Spinner } from "./components";
+import { AppointmentWorkflow, CalculatorWorkflow, CheckInWorkflow, RescheduleWorkflow } from "./workflows/Appointment";
+import { RestockWorkflow } from "./workflows/Restock";
+import { FoodWorkflow } from "./workflows/Food";
+
+type WorkflowView = (props: { onReady: () => void }) => React.ReactNode;
+
+// Each kind of account only gets its own workflow screens.
+const VIEWS: Record<User["portal"], Record<string, WorkflowView>> = {
+  patient: {
+    appointment: AppointmentWorkflow,
+    checkin: CheckInWorkflow,
+    reschedule: RescheduleWorkflow,
+    calculator: CalculatorWorkflow,
+  },
+  staff: {
+    restock: RestockWorkflow,
+    food: FoodWorkflow,
+  },
+};
+
+interface Workflow {
+  id: string;
+  label: string;
+  description: string;
+}
+
+const ROLE_LABEL: Record<User["role"], string> = { patient: "Patient", doctor: "Doctor", manager: "Manager", boss: "Boss" };
+
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
+
+/** "Dr. Morgan Lee" -> "Dr. Lee", "Alex Rivera" -> "Alex". */
+const shortName = (name: string) => (name.startsWith("Dr.") ? `Dr. ${name.split(" ").at(-1)}` : name.split(" ")[0]);
+
+/** The blue user icon, cropped to its circle (the source image has a white square around it). */
+function UserAvatar({ size }: { size?: "lg" }) {
+  return (
+    <span className={`avatar ${size ?? ""}`} aria-hidden="true">
+      <img src="/user-avatar.avif" alt="" width={740} height={740} />
+    </span>
+  );
+}
+
+/** Three-bar + avatar button that opens an MUI Menu. */
+function AccountMenu({
+  user,
+  onLogout,
+  workflows,
+  running,
+  onChooseWorkflow,
+  onOpenWorkflow,
+}: {
+  user: User;
+  onLogout: () => void;
+  workflows: Workflow[] | null;
+  running: string | null;
+  onChooseWorkflow: () => void;
+  onOpenWorkflow: (id: string) => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const open = Boolean(anchor);
+  const menuId = useId();
+  const close = () => setAnchor(null);
+
+  return (
+    <div className="account">
+      <button
+        className="account-btn"
+        aria-haspopup="menu"
+        aria-controls={open ? menuId : undefined}
+        aria-expanded={open}
+        aria-label={`Account menu for ${user.name}`}
+        onClick={(e) => setAnchor(e.currentTarget)}
+      >
+        <IconMenu />
+        <UserAvatar />
+      </button>
+      <Menu
+        id={menuId}
+        anchorEl={anchor}
+        open={open}
+        onClose={close}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { width: 270 } } }}
+      >
+        <li className="menu-head" role="none">
+          <UserAvatar size="lg" />
+          <div>
+            <strong>{user.name}</strong>
+            <div className="muted small">
+              {ROLE_LABEL[user.role]} · Welcome
+            </div>
+          </div>
+        </li>
+        <MenuItem
+          selected={!running}
+          onClick={() => {
+            close();
+            onChooseWorkflow();
+          }}
+        >
+          <ListItemIcon>
+            <IconGrid />
+          </ListItemIcon>
+          Choose a workflow
+        </MenuItem>
+        {workflows?.map((w) => (
+          <MenuItem
+            key={w.id}
+            selected={running === w.id}
+            sx={{ pl: 2.5, fontWeight: 500 }}
+            onClick={() => {
+              close();
+              onOpenWorkflow(w.id);
+            }}
+          >
+            <ListItemIcon>
+              <span className="menu-wf-icon">{workflowIcon(w.id, 18)}</span>
+            </ListItemIcon>
+            {w.label}
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            close();
+            navigate("/");
+          }}
+        >
+          <ListItemIcon>
+            <IconHome />
+          </ListItemIcon>
+          Home screen
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          sx={{ color: "error.main" }}
+          onClick={() => {
+            close();
+            onLogout();
+          }}
+        >
+          <ListItemIcon sx={{ color: "inherit" }}>
+            <IconLogout />
+          </ListItemIcon>
+          Sign out
+        </MenuItem>
+      </Menu>
+    </div>
+  );
+}
+
+/** The running workflow lives in the URL (/login?run=food) so browser Back returns to the picker. */
+const runFromUrl = () => new URLSearchParams(window.location.search).get("run");
+
+export function Portal({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
+  const [selected, setSelected] = useState("");
+  const [running, setRunning] = useState<string | null>(runFromUrl);
+  const [loading, setLoading] = useState(() => Boolean(runFromUrl()));
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<Workflow[]>("/api/workflows")
+      .then((w) => {
+        setWorkflows(w);
+        // "Sign Up" on the home screen can preselect a workflow (?workflow=food).
+        const wanted = new URLSearchParams(window.location.search).get("workflow") ?? runFromUrl();
+        setSelected(w.find((x) => x.id === wanted)?.id ?? w[0]?.id ?? "");
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+
+  useEffect(() => {
+    const onPop = () => {
+      const run = runFromUrl();
+      setRunning(run);
+      if (run) setSelected(run);
+      else setLoading(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function openWorkflow(id: string) {
+    if (id === running) return;
+    setLoading(true); // the workflow clears this once its first data has loaded
+    navigate(`/login?run=${id}`);
+    window.scrollTo(0, 0);
+  }
+
+  function chooseWorkflow() {
+    if (running) navigate("/login");
+    window.scrollTo(0, 0);
+  }
+
+  const View = running ? VIEWS[user.portal][running] : undefined;
+  const runningWorkflow = workflows?.find((w) => w.id === running);
+  const current = workflows?.find((w) => w.id === selected);
+  const ready = useCallback(() => setLoading(false), []);
+
+  // A ?run= for a workflow this account can't open falls back to the picker.
+  useEffect(() => {
+    if (running && !View) {
+      setLoading(false);
+      window.history.replaceState(null, "", "/login");
+      setRunning(null);
+    }
+  }, [running, View]);
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <div className="topbar-left">
+          <BrandLogo />
+          <span className="divider" aria-hidden="true" />
+          <span className="portal-chip">
+            <span className="dot" aria-hidden="true" />
+            <span>Welcome</span>
+          </span>
+        </div>
+        <AccountMenu
+          user={user}
+          onLogout={onLogout}
+          workflows={workflows}
+          running={View ? running : null}
+          onChooseWorkflow={chooseWorkflow}
+          onOpenWorkflow={openWorkflow}
+        />
+      </header>
+
+      {View && running ? (
+        // Workflow page: the picker is gone; the hamburger menu leads back to it.
+        <main className="content" key={running}>
+          <div className="wf-page-head">
+            <span className="wf-page-icon">{workflowIcon(running, 30)}</span>
+            <div>
+              <h1>{runningWorkflow?.label ?? "Workflow"}</h1>
+              {runningWorkflow && <p>{runningWorkflow.description}</p>}
+            </div>
+          </div>
+          <View onReady={ready} />
+        </main>
+      ) : (
+        // Picker page: choose a workflow, then Run workflow opens it as its own page.
+        <main className="content picker">
+          <div className="greeting">
+            <h1>
+              {greeting()}, {shortName(user.name)}
+            </h1>
+            <p>Choose a workflow and select Run workflow.</p>
+          </div>
+          <section className="card run-bar" aria-labelledby="wf-label">
+            <div className="run-field">
+              <span id="wf-label" className="field-label">
+                Workflow
+              </span>
+              {workflows ? (
+                <WorkflowSelect options={workflows} value={selected} onChange={setSelected} labelId="wf-label" />
+              ) : (
+                <div className="select-skeleton">
+                  <Spinner /> Loading workflows
+                </div>
+              )}
+              {current && <p className="muted small">{current.description}</p>}
+            </div>
+            <button className="btn primary" onClick={() => selected && openWorkflow(selected)} disabled={!selected || loading}>
+              {loading ? <Spinner /> : <IconPlay />} Run workflow
+            </button>
+          </section>
+          <ErrorNote error={error} />
+        </main>
+      )}
+      {loading && <LoadingScreen label={`Opening ${runningWorkflow?.label ?? current?.label ?? "workflow"}`} />}
+    </div>
+  );
+}
