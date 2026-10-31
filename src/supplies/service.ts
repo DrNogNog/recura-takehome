@@ -131,13 +131,113 @@ const EDITABLE: Array<keyof SupplyItem> = [
 ];
 const LABELS: ExpenseLabel[] = ["business_expense", "capital_asset", "personal", "reimbursable"];
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const bad = (msg: string): never => {
+  throw new HttpError(400, msg);
+};
+const text = (v: unknown, field: string, max: number, required = true) => {
+  if (typeof v !== "string" || (required && !v.trim()) || v.length > max) bad(`${field} is required (up to ${max} characters)`);
+  return (v as string).trim();
+};
+const num = (v: unknown, field: string, min: number, max: number) => {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) bad(`${field} must be a number from ${min} to ${max}`);
+  return v as number;
+};
+const bool = (v: unknown, field: string) => (typeof v === "boolean" ? v : bad(`${field} must be true or false`));
+const date = (v: unknown, field: string) => (typeof v === "string" && DATE_RE.test(v) ? v : bad(`${field} must be a date (YYYY-MM-DD)`));
+const optionalDate = (v: unknown, field: string) => (v === null || v === "" || v === undefined ? undefined : date(v, field));
+
+/** Checks and normalizes the editable fields present in `body`. */
+function validatePatch(body: Record<string, unknown>): Partial<SupplyItem> {
+  const p: Partial<SupplyItem> = {};
+  const has = (k: keyof SupplyItem) => k in body;
+  if (has("name")) p.name = text(body.name, "Name", 80);
+  if (has("category")) p.category = text(body.category, "Category", 40);
+  if (has("location")) p.location = text(body.location, "Location", 40);
+  if (has("supplier")) {
+    const s = (body.supplier ?? {}) as Record<string, unknown>;
+    const url = s.url === undefined || s.url === "" ? undefined : text(s.url, "Supplier website", 200);
+    if (url && !/^https?:\/\//i.test(url)) bad("Supplier website must start with http:// or https://");
+    p.supplier = { name: text(s.name, "Supplier", 60), url, leadTimeDays: Math.round(num(s.leadTimeDays, "Lead time (days)", 0, 365)) };
+  }
+  if (has("consumable")) p.consumable = bool(body.consumable, "Consumable");
+  if (has("quantity")) p.quantity = Math.round(num(body.quantity, "Quantity", 0, 1_000_000));
+  if (has("unit")) p.unit = text(body.unit, "Unit", 20);
+  if (has("reorderThreshold")) p.reorderThreshold = Math.round(num(body.reorderThreshold, "Reorder threshold", 0, 1_000_000));
+  if (has("unitCost")) p.unitCost = +num(body.unitCost, "Unit cost", 0, 1_000_000).toFixed(4);
+  if (has("purchaseDate")) p.purchaseDate = date(body.purchaseDate, "Purchase date");
+  if (has("avgLifespanMonths")) p.avgLifespanMonths = num(body.avgLifespanMonths, "Average lifespan (months)", 1, 600);
+  if (has("lastUsedDate")) p.lastUsedDate = optionalDate(body.lastUsedDate, "Last used");
+  if (has("reorderDate")) p.reorderDate = optionalDate(body.reorderDate, "Reorder by");
+  if (has("lastSterilizedDate")) p.lastSterilizedDate = optionalDate(body.lastSterilizedDate, "Last sterilized");
+  if (has("expenseLabel")) {
+    if (!LABELS.includes(body.expenseLabel as ExpenseLabel)) bad("Unknown expense label");
+    p.expenseLabel = body.expenseLabel as ExpenseLabel;
+  }
+  if (has("isEstimate")) p.isEstimate = bool(body.isEstimate, "Estimate");
+  if (has("isUnorganized")) p.isUnorganized = bool(body.isUnorganized, "Unorganized");
+  if (has("requiresSterilization")) p.requiresSterilization = bool(body.requiresSterilization, "Requires sterilization");
+  if (has("sterilizeAfterEachUse")) p.sterilizeAfterEachUse = bool(body.sterilizeAfterEachUse, "Sterilize after each use");
+  if (p.requiresSterilization === false) p.sterilizeAfterEachUse = false;
+  return p;
+}
+
 export async function updateSupply(id: string, body: Record<string, unknown>, changedBy: string) {
   const item = await repo.get(id);
   if (!item) throw new HttpError(404, "Supply not found");
-  const patch: Partial<SupplyItem> = {};
-  for (const key of EDITABLE) if (key in body) (patch as Record<string, unknown>)[key] = body[key];
-  if (patch.expenseLabel && !LABELS.includes(patch.expenseLabel)) throw new HttpError(400, "Unknown expense label");
-  return save(item, patch, changedBy, "update");
+  const editable = Object.fromEntries(Object.entries(body).filter(([k]) => EDITABLE.includes(k as keyof SupplyItem)));
+  return save(item, validatePatch(editable), changedBy, "update");
+}
+
+const REQUIRED_ON_CREATE: Array<keyof SupplyItem> = [
+  "name", "category", "location", "supplier", "consumable", "quantity", "unit", "reorderThreshold", "unitCost",
+  "purchaseDate", "avgLifespanMonths",
+];
+
+/** Adds a new item to the supply list. Everything is a business expense until labeled otherwise. */
+export async function createSupply(body: Record<string, unknown>, changedBy: string) {
+  const missing = REQUIRED_ON_CREATE.filter((k) => !(k in body));
+  if (missing.length) bad(`Missing: ${missing.join(", ")}`);
+  const fields = validatePatch(body);
+  const now = new Date().toISOString();
+  const defaults: Partial<SupplyItem> = {
+    expenseLabel: "business_expense",
+    isEstimate: false,
+    isUnorganized: false,
+    requiresSterilization: false,
+    sterilizeAfterEachUse: false,
+  };
+  const item = { ...defaults, ...fields, id: `sup-${randomUUID().slice(0, 8)}`, updatedAt: now, version: 1 } as SupplyItem;
+  if ((await repo.list()).some((i) => i.name.toLowerCase() === item.name.toLowerCase() && i.location.toLowerCase() === item.location.toLowerCase())) {
+    throw new HttpError(409, `${item.name} already exists in ${item.location}. Use Order more to add stock.`);
+  }
+  await repo.insert(item);
+  await repo.addHistory({
+    id: randomUUID(),
+    itemId: item.id,
+    itemName: item.name,
+    action: "create",
+    changedBy,
+    changedAt: now,
+    changes: { quantity: { from: null, to: item.quantity } },
+  });
+  return item;
+}
+
+/**
+ * Orders more of an item: adds the quantity to stock, updates the unit cost if given,
+ * and records today as the purchase date (so lifespan counts from the newest batch).
+ */
+export async function orderSupply(id: string, quantity: unknown, unitCost: unknown, changedBy: string) {
+  const item = await repo.get(id);
+  if (!item) throw new HttpError(404, "Supply not found");
+  const qty = Math.round(num(quantity, "Quantity", 1, 1_000_000));
+  const patch: Partial<SupplyItem> = { quantity: item.quantity + qty, purchaseDate: today() };
+  // Push the reorder date out right away for the new stock level, rather than waiting for the hourly job.
+  const reorderDate = reorderDateFor({ ...item, quantity: item.quantity + qty }, await consumptionRates());
+  if (reorderDate) patch.reorderDate = reorderDate;
+  if (unitCost !== undefined && unitCost !== null && unitCost !== "") patch.unitCost = +num(unitCost, "Unit cost", 0, 1_000_000).toFixed(4);
+  return save(item, patch, changedBy, "restock");
 }
 
 export async function recordUse(id: string, quantity: number, location: string | undefined, changedBy: string) {
@@ -185,19 +285,25 @@ export async function shoppingList() {
         reason: i.pastLifespan ? "Past expected lifespan" : i.belowThreshold ? "Low stock" : `Reorder by ${i.reorderDate}`,
         isEstimate: i.isEstimate,
       };
-    });
+    })
+    .filter((s) => s.buy > 0); // nothing to buy (e.g. just restocked) means it's not on the list
+}
+
+/** When to reorder a consumable: before stock hits the threshold, allowing for supplier lead time. */
+function reorderDateFor(item: Pick<SupplyItem, "id" | "consumable" | "quantity" | "reorderThreshold" | "supplier">, rates: Awaited<ReturnType<typeof consumptionRates>>) {
+  if (!item.consumable) return undefined;
+  const perDay = dailyRateFor(item.id, rates);
+  if (perDay <= 0) return undefined;
+  const daysUntilThreshold = Math.max(0, Math.floor((item.quantity - item.reorderThreshold) / perDay));
+  return addDays(today(), Math.max(0, daysUntilThreshold - item.supplier.leadTimeDays));
 }
 
 /** Leader-only job: sets each item's reorder date from its consumption rate and supplier lead time. */
 async function recomputeReorderDates() {
   const rates = await consumptionRates();
   for (const item of await repo.list()) {
-    if (!item.consumable) continue;
-    const perDay = dailyRateFor(item.id, rates);
-    if (perDay <= 0) continue;
-    const daysUntilThreshold = Math.max(0, Math.floor((item.quantity - item.reorderThreshold) / perDay));
-    const reorderDate = addDays(today(), Math.max(0, daysUntilThreshold - item.supplier.leadTimeDays));
-    if (reorderDate !== item.reorderDate) {
+    const reorderDate = reorderDateFor(item, rates);
+    if (reorderDate && reorderDate !== item.reorderDate) {
       await save(item, { reorderDate }, "system:leader", "auto_reorder_date").catch(() => undefined);
     }
   }

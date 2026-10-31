@@ -45,7 +45,7 @@ export interface HistoryEntry {
   id: string;
   itemId: string;
   itemName: string;
-  action: "create" | "update" | "use" | "sterilize" | "auto_reorder_date";
+  action: "create" | "update" | "use" | "sterilize" | "restock" | "auto_reorder_date";
   changedBy: string;
   changedAt: string;
   changes: Record<string, { from: unknown; to: unknown }>;

@@ -1,7 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Divider from "@mui/material/Divider";
 import { api, download, fmtDateTime, timeAgo } from "../api";
 import { ErrorNote, Modal, Spinner } from "../components";
 import { MenuSelect } from "../MenuSelect";
+import { IconBox, IconCheck, IconChevron, IconShield, IconSparkle, IconX } from "../icons";
+import { EXPENSE_LABELS, OrderDialog, SupplyFormDialog } from "./SupplyDialogs";
 
 interface Supply {
   id: string;
@@ -64,19 +70,17 @@ interface History {
 }
 
 type Tab = "inventory" | "consumption" | "shopping" | "history";
-const LABELS = [
-  ["business_expense", "Business expense"],
-  ["capital_asset", "Capital asset"],
-  ["reimbursable", "Reimbursable"],
-  ["personal", "Personal"],
-] as const;
 
 export function RestockWorkflow({ onReady }: { onReady: () => void }) {
   const [tab, setTab] = useState<Tab>("inventory");
   const [items, setItems] = useState<Supply[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [innovationsFor, setInnovationsFor] = useState<Supply | null>(null);
+  const [editing, setEditing] = useState<Supply | "new" | null>(null);
+  const [ordering, setOrdering] = useState<{ item: Supply; suggested?: number } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0); // bumps the shopping list after changes
   const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
@@ -93,14 +97,27 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
     load().finally(onReady);
   }, [load, onReady]);
 
-  async function act(item: Supply, path: string, json?: unknown, method = "POST") {
+  async function act(item: Supply, path: string, json?: unknown, method = "POST", done?: string) {
     setError(null);
+    setNotice(null);
     try {
       await api(`/api/supplies/${item.id}${path}`, { method, json });
       await load();
+      setRefreshKey((k) => k + 1);
+      if (done) setNotice(done);
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  /** After the add/edit or order dialog saves. */
+  async function saved(msg: string) {
+    setEditing(null);
+    setOrdering(null);
+    setError(null);
+    setNotice(msg);
+    await load();
+    setRefreshKey((k) => k + 1);
   }
 
   async function exportCsv() {
@@ -127,9 +144,14 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
           <h2 id="restock-title">Restock medical supplies</h2>
           <p className="muted small">Catalog updated {timeAgo(lastUpdated)}</p>
         </div>
-        <button className="btn primary" onClick={exportCsv} disabled={exporting}>
-          {exporting && <Spinner />} Export to accounting
-        </button>
+        <div className="row gap">
+          <button className="btn primary" onClick={() => setEditing("new")}>
+            + Add supply
+          </button>
+          <button className="btn" onClick={exportCsv} disabled={exporting}>
+            {exporting && <Spinner />} Export to accounting
+          </button>
+        </div>
       </div>
 
       <div className="alert-row">
@@ -144,6 +166,9 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
             {{ inventory: "Supply list", consumption: "Consumption", shopping: "Shopping list", history: "Update history" }[t]}
           </button>
         ))}
+      </div>
+      <div aria-live="polite">
+        {notice && <p className="badge ok">{notice}</p>}
       </div>
       <ErrorNote error={error} />
 
@@ -216,7 +241,7 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
                       size="sm"
                       ariaLabel={`Expense label for ${i.name}`}
                       value={i.expenseLabel}
-                      options={LABELS.map(([id, label]) => ({ id, label }))}
+                      options={EXPENSE_LABELS.map(([id, label]) => ({ id, label }))}
                       onChange={(v) => act(i, "", { expenseLabel: v }, "PATCH")}
                     />
                     <label className="check small">
@@ -229,19 +254,14 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
                     </label>
                   </td>
                   <td>
-                    <div className="actions">
-                      <button className="btn small" onClick={() => act(i, "/use", { quantity: 1 })}>
-                        {i.consumable ? "Use 1" : "Log use"}
-                      </button>
-                      {i.requiresSterilization && (
-                        <button className="btn small" onClick={() => act(i, "/sterilize")}>
-                          Sterilized
-                        </button>
-                      )}
-                      <button className="btn small ghost" onClick={() => setInnovationsFor(i)}>
-                        Innovations
-                      </button>
-                    </div>
+                    <RowActions
+                      item={i}
+                      onEdit={() => setEditing(i)}
+                      onOrder={() => setOrdering({ item: i })}
+                      onUse={() => act(i, "/use", { quantity: 1 }, "POST", i.consumable ? `Used 1 ${i.unit} of ${i.name}.` : `Logged a use of ${i.name}.`)}
+                      onSterilize={() => act(i, "/sterilize", undefined, "POST", `Marked ${i.name} as sterilized today.`)}
+                      onInnovations={() => setInnovationsFor(i)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -250,11 +270,105 @@ export function RestockWorkflow({ onReady }: { onReady: () => void }) {
         </div>
       )}
       {tab === "consumption" && <Consumption />}
-      {tab === "shopping" && <ShoppingList />}
-      {tab === "history" && <HistoryLog />}
+      {tab === "shopping" && (
+        <ShoppingList
+          refreshKey={refreshKey}
+          onOrder={(id, qty) => {
+            const item = items.find((x) => x.id === id);
+            if (item) setOrdering({ item, suggested: qty });
+          }}
+        />
+      )}
+      {tab === "history" && <HistoryLog refreshKey={refreshKey} />}
 
       {innovationsFor && <Innovations item={innovationsFor} onClose={() => setInnovationsFor(null)} />}
+      {editing && (
+        <SupplyFormDialog item={editing === "new" ? undefined : editing} onClose={() => setEditing(null)} onSaved={saved} />
+      )}
+      {ordering && <OrderDialog item={ordering.item} suggested={ordering.suggested} onClose={() => setOrdering(null)} onOrdered={saved} />}
     </section>
+  );
+}
+
+/** One "Actions" button per row that opens an MUI menu of everything you can do to the item. */
+function RowActions({
+  item,
+  onEdit,
+  onOrder,
+  onUse,
+  onSterilize,
+  onInnovations,
+}: {
+  item: Supply;
+  onEdit: () => void;
+  onOrder: () => void;
+  onUse: () => void;
+  onSterilize: () => void;
+  onInnovations: () => void;
+}) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const menuId = useId();
+  const run = (fn: () => void) => () => {
+    setAnchor(null);
+    fn();
+  };
+  return (
+    <>
+      <button
+        className="btn small actions-btn"
+        aria-haspopup="menu"
+        aria-expanded={Boolean(anchor)}
+        aria-controls={anchor ? menuId : undefined}
+        aria-label={`Actions for ${item.name}`}
+        onClick={(e) => setAnchor(e.currentTarget)}
+      >
+        Actions <IconChevron size={14} />
+      </button>
+      <Menu
+        id={menuId}
+        anchorEl={anchor}
+        open={Boolean(anchor)}
+        onClose={() => setAnchor(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{ paper: { sx: { minWidth: 220 } } }}
+      >
+        <MenuItem onClick={run(onOrder)}>
+          <ListItemIcon>
+            <IconBox />
+          </ListItemIcon>
+          Order more
+        </MenuItem>
+        <MenuItem onClick={run(onEdit)}>
+          <ListItemIcon>
+            <IconSparkle />
+          </ListItemIcon>
+          Edit details
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={run(onUse)}>
+          <ListItemIcon>
+            <IconX />
+          </ListItemIcon>
+          {item.consumable ? `Use 1 ${item.unit}` : "Log a use"}
+        </MenuItem>
+        {item.requiresSterilization && (
+          <MenuItem onClick={run(onSterilize)}>
+            <ListItemIcon>
+              <IconShield />
+            </ListItemIcon>
+            Mark sterilized today
+          </MenuItem>
+        )}
+        <Divider />
+        <MenuItem onClick={run(onInnovations)}>
+          <ListItemIcon>
+            <IconCheck />
+          </ListItemIcon>
+          Recent innovations
+        </MenuItem>
+      </Menu>
+    </>
   );
 }
 
@@ -290,11 +404,11 @@ function Consumption() {
   );
 }
 
-function ShoppingList() {
+function ShoppingList({ refreshKey, onOrder }: { refreshKey: number; onOrder: (id: string, qty: number) => void }) {
   const [data, setData] = useState<{ items: ShopItem[]; total: number } | null>(null);
   useEffect(() => {
     api<{ items: ShopItem[]; total: number }>("/api/supplies/shopping-list").then(setData);
-  }, []);
+  }, [refreshKey]);
   if (!data) return <Spinner />;
   if (!data.items.length) return <p className="muted">Nothing to reorder right now.</p>;
   return (
@@ -318,9 +432,12 @@ function ShoppingList() {
                 · {s.location} · have {s.have}
               </div>
             </div>
-            <div className="right">
+            <div className="right shop-right">
               <span className="num">${s.estCost.toFixed(2)}</span>
               <span className="badge warn small">{s.reason}</span>
+              <button className="btn primary small" onClick={() => onOrder(s.id, s.buy)}>
+                Order {s.buy}
+              </button>
             </div>
           </li>
         ))}
@@ -332,11 +449,11 @@ function ShoppingList() {
   );
 }
 
-function HistoryLog() {
+function HistoryLog({ refreshKey }: { refreshKey: number }) {
   const [history, setHistory] = useState<History[] | null>(null);
   useEffect(() => {
     api<{ history: History[] }>("/api/supplies/history").then((r) => setHistory(r.history));
-  }, []);
+  }, [refreshKey]);
   if (!history) return <Spinner />;
   if (!history.length) return <p className="muted">No changes recorded yet.</p>;
   return (

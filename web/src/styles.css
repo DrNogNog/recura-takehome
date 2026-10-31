@@ -209,6 +209,26 @@ legend { font-weight: 600; font-size: 0.88rem; margin-bottom: 0.4rem; }
 }
 .collapsed-line:focus-visible { outline: none; }
 
+/* Restock: actions menu button, add/edit and order dialogs. */
+.actions-btn { gap: 0.35rem; white-space: nowrap; }
+.shop-right { grid-auto-flow: row; }
+.supply-dialog { padding: 1.25rem 1.35rem 1.35rem; font-family: var(--font); color: var(--text); }
+.supply-dialog .modal-head { margin-bottom: 0.5rem; }
+.supply-dialog h2 { margin: 0; }
+.supply-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; }
+.supply-form fieldset { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem 1rem; padding: 0.9rem 0 0; border-top: 1px solid var(--border); }
+.supply-form fieldset:first-child { border-top: 0; padding-top: 0; }
+.supply-form legend { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 0 0 0.4rem; }
+.supply-form .span2 { grid-column: 1 / -1; }
+.supply-form .menu-select.sm .ms-trigger { width: 100%; margin-bottom: 0; }
+.supply-form .error { grid-column: 1 / -1; }
+.dialog-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.4rem; }
+.order-meta { margin: 0; }
+.order-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 0.8rem 1rem; border-radius: var(--radius-sm); background: var(--surface-2); }
+@media (max-width: 560px) {
+  .supply-form, .supply-form fieldset { grid-template-columns: 1fr; }
+}
+
 /* Automatic arrival calculator: the two times it's working from. */
 .calc-inputs { display: flex; flex-wrap: wrap; gap: 0.75rem 2rem; padding: 0.85rem 1rem; border-radius: var(--radius-sm); background: var(--surface-2); margin: 0.75rem 0 0.25rem; }
 .calc-inputs > span { display: inline-flex; align-items: baseline; gap: 0.5rem; }

@@ -58,6 +58,23 @@ suppliesRouter.get(
   })
 );
 
+/** Add a new item to the supply list. */
+suppliesRouter.post(
+  "/",
+  handle(async (req, res) => {
+    res.status(201).json({ item: await svc.createSupply(req.body ?? {}, req.user!.name) });
+  })
+);
+
+/** Order more: body { quantity, unitCost? } adds to stock and logs a restock. */
+suppliesRouter.post(
+  "/:id/order",
+  handle(async (req, res) => {
+    const { quantity, unitCost } = req.body ?? {};
+    res.json({ item: await svc.orderSupply(String(req.params.id), quantity, unitCost, req.user!.name) });
+  })
+);
+
 suppliesRouter.patch(
   "/:id",
   handle(async (req, res) => {
