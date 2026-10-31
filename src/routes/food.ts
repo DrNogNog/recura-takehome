@@ -21,10 +21,18 @@ foodRouter.get(
 );
 
 /** Personal catalog: scrape one link into it, list it, remove items. */
+/**
+ * Body { text }: pasted text with one or more links (any separators, or none) → per-link results.
+ * Body { url }: a single link (kept for compatibility).
+ */
 foodRouter.post(
   "/catalog/scrape",
   handle(async (req, res) => {
-    res.status(201).json(await svc.scrapeIntoPersonalCatalog(req.user!.id, req.body?.url));
+    if (req.body?.text !== undefined) {
+      res.json(await svc.scrapeLinksIntoPersonalCatalog(req.user!.id, req.body.text));
+    } else {
+      res.status(201).json(await svc.scrapeIntoPersonalCatalog(req.user!.id, req.body?.url));
+    }
   })
 );
 

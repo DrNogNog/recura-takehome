@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { TtlCache } from "../lib/cache.js";
 import { HttpError } from "../lib/http.js";
 import { JobQueue } from "../lib/queue.js";
+import { parseLinks } from "../lib/links.js";
 import { aiEnabled, planHeuristically, planWithClaude, tuneCalories } from "./planner.js";
 import { scrapeMarket } from "./scraper.js";
 import {
@@ -87,15 +88,24 @@ const MAX_PERSONAL_ITEMS = 300;
 export async function scrapeIntoPersonalCatalog(userId: string, url: unknown) {
   if (typeof url !== "string" || !url.trim()) throw new HttpError(400, "Paste a link to a store page first");
   if (url.length > 2000) throw new HttpError(400, "That link is too long");
-  const all = await store.allItems();
-  const mine = all.filter((i) => i.ownerId === userId);
-  const found = await scrapeMarket(url, all.filter((i) => !i.ownerId), userId);
+  return saveToPersonalCatalog(userId, await fetchProducts(userId, url));
+}
+
+/** Scrapes one page into items for `userId` (doesn't save). */
+async function fetchProducts(userId: string, url: string) {
+  const shared = (await store.allItems()).filter((i) => !i.ownerId);
+  const found = await scrapeMarket(url, shared, userId);
   if (!found.length) {
     throw new HttpError(422, "No products with prices were found on that page. Try a product or category page from the store.");
   }
-  const mineIds = new Set(mine.map((i) => i.id));
+  return found;
+}
+
+/** Saves scraped items to the user's catalog, enforcing the size limit. */
+async function saveToPersonalCatalog(userId: string, found: FoodItem[]) {
+  const mineIds = new Set((await store.allItems()).filter((i) => i.ownerId === userId).map((i) => i.id));
   const fresh = found.filter((i) => !mineIds.has(i.id));
-  if (mine.length + fresh.length > MAX_PERSONAL_ITEMS) {
+  if (mineIds.size + fresh.length > MAX_PERSONAL_ITEMS) {
     throw new HttpError(422, `Your personal catalog can hold ${MAX_PERSONAL_ITEMS} items. Remove some first.`);
   }
   for (const item of found) {
@@ -105,6 +115,71 @@ export async function scrapeIntoPersonalCatalog(userId: string, url: unknown) {
   }
   searchCache.clear();
   return { added: fresh.length, updated: found.length - fresh.length, items: found };
+}
+
+const MAX_LINKS_PER_PASTE = 10;
+const SCRAPE_CONCURRENCY = 4;
+
+export interface LinkResult {
+  url: string;
+  ok: boolean;
+  added?: number;
+  updated?: number;
+  error?: string;
+}
+
+/**
+ * Scrapes every link found in pasted text (see parseLinks) into the personal catalog.
+ * Pages are fetched a few at a time; results are saved in pasted order so the catalog
+ * limit is applied fairly. One bad link doesn't stop the others.
+ */
+export async function scrapeLinksIntoPersonalCatalog(userId: string, text: unknown) {
+  if (typeof text !== "string" || !text.trim()) throw new HttpError(400, "Paste one or more store page links first");
+  if (text.length > 20_000) throw new HttpError(400, "That's too much text. Paste up to 10 links at a time.");
+  const { links, invalid } = parseLinks(text);
+  if (!links.length) throw new HttpError(400, "No links found. Each link should start with https://");
+  const batch = links.slice(0, MAX_LINKS_PER_PASTE);
+  const skipped = links.slice(MAX_LINKS_PER_PASTE);
+
+  // Fetch in parallel (bounded), keeping each result in its link's slot.
+  const fetched: Array<{ items?: FoodItem[]; error?: string }> = new Array(batch.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < batch.length) {
+      const i = next++;
+      try {
+        fetched[i] = { items: await fetchProducts(userId, batch[i]) };
+      } catch (e) {
+        fetched[i] = { error: e instanceof HttpError ? e.message : "Couldn't scrape that page" };
+        if (!(e instanceof HttpError)) console.error(`[scrape] ${batch[i]}`, e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SCRAPE_CONCURRENCY, batch.length) }, worker));
+
+  // Save in pasted order.
+  const results: LinkResult[] = [];
+  for (const [i, url] of batch.entries()) {
+    const f = fetched[i];
+    if (f.error || !f.items) {
+      results.push({ url, ok: false, error: f.error });
+      continue;
+    }
+    try {
+      const saved = await saveToPersonalCatalog(userId, f.items);
+      results.push({ url, ok: true, added: saved.added, updated: saved.updated });
+    } catch (e) {
+      results.push({ url, ok: false, error: e instanceof HttpError ? e.message : "Couldn't save those foods" });
+    }
+  }
+  return {
+    results,
+    added: results.reduce((s, r) => s + (r.added ?? 0), 0),
+    updated: results.reduce((s, r) => s + (r.updated ?? 0), 0),
+    failed: results.filter((r) => !r.ok).length,
+    skipped, // over the per-paste limit; paste them again
+    invalid, // started with http(s):// but weren't usable links
+  };
 }
 
 export async function personalCatalog(userId: string) {

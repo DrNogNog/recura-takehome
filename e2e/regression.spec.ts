@@ -38,21 +38,34 @@ async function apiToken(request: APIRequestContext, who: { username: string; pas
   return ((await r.json()) as { token: string }).token;
 }
 
-// A tiny local "grocery store" page with schema.org products, for the scrape test.
+// A tiny local "grocery store" with two product pages (schema.org JSON-LD) and a missing
+// page, for the scrape test.
 let store: Server;
-let storeUrl = "";
+let storeBase = "";
+const PAGES: Record<string, Array<{ name: string; price: string }>> = {
+  "/produce": [
+    { name: "Organic Rolled Oats 42oz", price: "6.49" },
+    { name: "Wild Salmon Fillets 1lb", price: "12.99" },
+  ],
+  "/dairy": [
+    { name: "Plain Greek Yogurt 32oz", price: "5.29" },
+    { name: "Large Eggs 12ct", price: "3.99" },
+  ],
+};
 test.beforeAll(async () => {
-  const products = [
-    { "@type": "Product", name: "Organic Rolled Oats 42oz", offers: { price: "6.49" } },
-    { "@type": "Product", name: "Wild Salmon Fillets 1lb", offers: { price: "12.99" } },
-  ];
-  store = createServer((_req, res) => {
+  store = createServer((req, res) => {
+    const products = PAGES[req.url ?? ""];
+    if (!products) {
+      res.writeHead(404, { "Content-Type": "text/html" });
+      return res.end("<!doctype html><title>Not found</title>");
+    }
+    const graph = products.map((p) => ({ "@type": "Product", name: p.name, offers: { price: p.price } }));
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`<!doctype html><title>Store</title><script type="application/ld+json">${JSON.stringify({ "@graph": products })}</script>`);
+    res.end(`<!doctype html><title>Store</title><script type="application/ld+json">${JSON.stringify({ "@graph": graph })}</script>`);
   });
   await new Promise<void>((resolve) => store.listen(0, "127.0.0.1", resolve));
   const address = store.address();
-  storeUrl = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}/produce`;
+  storeBase = `http://127.0.0.1:${typeof address === "object" && address ? address.port : 0}`;
 });
 test.afterAll(() => store?.close());
 
@@ -269,18 +282,25 @@ test.describe("staff workflows", () => {
     await page.getByRole("button", { name: /Show settings/ }).click();
     await expect(page.getByLabel("Daily calories")).toBeVisible();
 
-    // Personal catalog: a bad link is caught, a real store page adds foods, and they can be removed.
-    const link = page.getByLabel("Store page link");
-    await link.fill("not a link");
-    await page.getByRole("button", { name: "Scrape link, and add food to local personal catalog" }).click();
-    await expect(page.getByText("Paste a full link, starting with https://")).toBeVisible();
+    // Personal catalog: paste several links at once (glued together, a duplicate, and a
+    // missing page). The live preview counts them; each link gets its own result.
+    const links = page.getByLabel("Store page links");
+    const scrape = page.getByRole("button", { name: /^Scrape link, and add food to local personal catalog|^Scraping/ });
+    await links.fill("no links here");
+    await expect(page.getByText("No links found yet. Each link should start with https://")).toBeVisible();
+    await expect(scrape).toBeDisabled();
 
-    await link.fill(storeUrl);
-    await page.getByRole("button", { name: "Scrape link, and add food to local personal catalog" }).click();
-    await expect(page.locator(".status-message .badge.ok", { hasText: "Added 2 foods" })).toBeVisible();
-    await expect(page.locator(".catalog-list li")).toHaveCount(2);
+    await links.fill(`${storeBase}/produce${storeBase}/dairy, ${storeBase}/missing ${storeBase}/produce`);
+    await expect(page.getByText("3 links found")).toBeVisible(); // duplicate removed
+    await expect(page.locator(".link-chips li")).toHaveCount(3);
+    await scrape.click();
+    await expect(page.locator(".status-message .badge.ok")).toHaveText("Added 4 foods from 2 pages, 1 link couldn't be scraped.");
+    await expect(page.locator(".link-results li.ok")).toHaveCount(2);
+    await expect(page.locator(".link-results li.failed")).toContainText("That website answered with an error (404)");
+    await expect(page.locator(".catalog-list li")).toHaveCount(4);
+
     await page.getByRole("button", { name: "Remove Wild Salmon Fillets 1lb" }).click();
-    await expect(page.locator(".catalog-list li")).toHaveCount(1);
+    await expect(page.locator(".catalog-list li")).toHaveCount(3);
   });
 });
 
