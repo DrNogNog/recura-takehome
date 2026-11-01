@@ -11,6 +11,7 @@ import { appointmentsRouter, calculatorsRouter, watchRouter } from "./routes/app
 import { suppliesRouter } from "./routes/supplies.js";
 import { foodRouter } from "./routes/food.js";
 import { demoRouter } from "./routes/demo.js";
+import { automationsRouter } from "./routes/automations.js";
 
 export const app = express();
 
@@ -31,6 +32,7 @@ app.use("/api/watch", watchRouter);
 app.use("/api/supplies", suppliesRouter);
 app.use("/api/food", foodRouter);
 app.use("/api/demo", demoRouter);
+app.use("/api/automations", automationsRouter);
 
 // Serve the built web portal when it exists (npm run build:web).
 const webDist = path.resolve("web/dist");

@@ -29,6 +29,11 @@ const PATIENT_WORKFLOWS: Workflow[] = [
     label: "Arrival calculator",
     description: "Check whether an arrival was in the timeframe and how late it was.",
   },
+  {
+    id: "automations",
+    label: "Automations",
+    description: "When something happens, run actions automatically, including AI steps written by Claude.",
+  },
 ];
 
 /** The dropdown for clinic staff accounts. */
@@ -42,6 +47,11 @@ const STAFF_WORKFLOWS: Workflow[] = [
     id: "food",
     label: "Get food recommendations",
     description: "AI meal planning from local market items with calories, budget, and nutrients.",
+  },
+  {
+    id: "automations",
+    label: "Automations",
+    description: "When something happens, run actions automatically, including AI steps written by Claude.",
   },
 ];
 

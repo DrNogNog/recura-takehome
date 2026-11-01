@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { MenuSelect } from "./MenuSelect";
-import { IconCheck, ImageIcon } from "./icons";
+import { IconBolt, IconCheck, ImageIcon } from "./icons";
 
 export interface WorkflowOption {
   id: string;
@@ -15,9 +15,11 @@ const ICONS: Record<string, ReactNode> = {
   calculator: <ImageIcon file="appointment.png" />,
   restock: <ImageIcon file="restock.png" />,
   food: <ImageIcon file="food_icon.png" />,
+  automations: <span className="bolt-icon"><IconBolt /></span>,
 };
 
 export const workflowIcon = (id: string, size?: number): ReactNode => {
+  if (id === "automations") return <span className="bolt-icon"><IconBolt size={size ? Math.round(size * 0.8) : 18} /></span>;
   const file = id === "restock" ? "restock.png" : id === "food" ? "food_icon.png" : ICONS[id] ? "appointment.png" : null;
   return file ? <ImageIcon file={file} size={size} /> : <IconCheck />;
 };

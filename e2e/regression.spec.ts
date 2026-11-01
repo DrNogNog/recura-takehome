@@ -139,10 +139,10 @@ async function runWorkflowExpectingSignIn(page: Page) {
 }
 
 test.describe("patient workflows", () => {
-  test("workflow picker lists the four patient workflows", async ({ page }) => {
+  test("workflow picker lists the patient workflows", async ({ page }) => {
     await login(page, PATIENT);
     await page.locator(".ms-trigger").click();
-    await expect(page.getByRole("option")).toHaveText([/View my appointment/, /Check in/, /Reschedule appointment/, /Arrival calculator/]);
+    await expect(page.getByRole("option")).toHaveText([/View my appointment/, /Check in/, /Reschedule appointment/, /Arrival calculator/, /Automations/]);
     await page.keyboard.press("Escape");
   });
 
@@ -161,6 +161,39 @@ test.describe("patient workflows", () => {
     await slot.click();
     await page.getByRole("button", { name: /^Move to/ }).click();
     await expect(page.locator(".status-message .badge.ok")).toContainText("Moved to");
+  });
+
+  test("automations: a template rule runs when the doctor reports a delay", async ({ page, request }) => {
+    await login(page, PATIENT);
+    await runWorkflow(page, "Automations");
+    await page.getByRole("button", { name: /Heads-up when my doctor runs late/ }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByLabel("Name")).toHaveValue("Heads-up when my doctor runs late");
+    await dialog.getByRole("button", { name: "Create automation" }).click();
+    await expect(page.locator(".status-message .badge.ok")).toContainText("Created Heads-up when my doctor runs late");
+    const card = page.locator(".rule-card", { hasText: "Heads-up when my doctor runs late" });
+    await expect(card).toContainText("delay (minutes) is at least 15");
+    await expect(card.locator(".rule-chip")).toHaveText([/1\. Ask Claude/, /2\. Send me a notification/]);
+
+    // The doctor reports 25 minutes late on the day of this patient's appointment.
+    const token = await apiToken(request, PATIENT);
+    const headers = { Authorization: `Bearer ${token}` };
+    const appt = (await (await request.get("/api/appointments/me", { headers })).json()).appointment;
+    const day = appt.actualAppointment.slice(0, 10);
+    expect((await request.post("/api/demo/delay", { headers, data: { doctorId: "d1", day, minutes: 25 } })).ok()).toBeTruthy();
+
+    // The run shows up in Activity on its own (the page polls).
+    await page.getByRole("tab", { name: /^Activity/ }).click();
+    const item = page.locator(".activity-item", { hasText: "Heads-up when my doctor runs late" }).first();
+    await expect(item).toContainText("running 25 min late", { timeout: 15_000 });
+    await expect(item.locator(".activity-steps li.ok")).toHaveCount(2);
+    await expect(item.locator(".pill", { hasText: "Test" })).toHaveCount(0);
+
+    // Turn it off, and clear the delay for the tests after this one.
+    await page.getByRole("tab", { name: /^My automations/ }).click();
+    await card.locator(".switch input").click();
+    await expect(card).toHaveClass(/off/);
+    expect((await request.post("/api/demo/delay", { headers, data: { doctorId: "d1", day, minutes: 0 } })).ok()).toBeTruthy();
   });
 
   test("arrival calculator runs on its own, then locks at check-in", async ({ page, request }) => {
@@ -250,6 +283,14 @@ test.describe("staff workflows", () => {
     await expect(page.locator(".status-message .badge.ok")).toHaveText("Saved changes to E2E face shields.");
     await expect(row).toContainText("Procedure Room");
 
+    // Recent innovations: without an Anthropic key (as in tests) it shows search shortcuts.
+    await row.getByRole("button", { name: "Actions for E2E face shields" }).click();
+    await page.getByRole("menuitem", { name: "Recent innovations" }).click();
+    const popup = page.getByRole("dialog");
+    await expect(popup.getByRole("link")).toHaveCount(4);
+    await expect(popup.getByText(/Add ANTHROPIC_API_KEY to \.env/)).toBeVisible();
+    await popup.getByRole("button", { name: "Close" }).click();
+
     // Order the gloves from the shopping list; they should drop off it.
     await page.getByRole("tab", { name: "Shopping list" }).click();
     const gloves = page.locator(".shop li", { hasText: "Nitrile exam gloves" });
@@ -304,6 +345,65 @@ test.describe("staff workflows", () => {
   });
 });
 
+test.describe("automations (staff)", () => {
+  test("build a rule with an AI step, test it, then a real low-stock event runs it", async ({ page, request }) => {
+    const token = await apiToken(request, MANAGER);
+    const headers = { Authorization: `Bearer ${token}` };
+    const created = await request.post("/api/supplies", {
+      headers,
+      data: {
+        name: "E2E gauze pads", category: "Wound care", location: "Exam Room A", supplier: { name: "MedLine Direct", leadTimeDays: 3 },
+        consumable: true, quantity: 30, unit: "pads", reorderThreshold: 20, unitCost: 0.2, purchaseDate: "2026-10-01", avgLifespanMonths: 24,
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+    const gauze = (await created.json()).item;
+
+    await login(page, MANAGER);
+    await runWorkflow(page, "Automations");
+    await page.getByRole("button", { name: "+ New automation" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Name").fill("Gauze watch");
+    // The trigger starts as "A supply runs low". Only for this item:
+    await dialog.getByRole("button", { name: "+ Add condition" }).click();
+    await dialog.getByLabel("Condition 1 value").fill("E2E gauze");
+    // Step 1 orders stock, step 2 asks Claude, step 3 notifies with Claude's reply.
+    await dialog.getByRole("button", { name: "Action 1", exact: true }).click();
+    await page.getByRole("option", { name: /Order more stock/ }).click();
+    await dialog.getByLabel("Quantity to order").fill("50");
+    await dialog.getByRole("button", { name: "+ Add action" }).click();
+    await dialog.getByRole("button", { name: "Action 2", exact: true }).click();
+    await page.getByRole("option", { name: /Ask Claude/ }).click();
+    await dialog.getByLabel("What should Claude do?").fill("Tell the manager what happened in one sentence.");
+    await dialog.getByRole("button", { name: "+ Add action" }).click();
+    await dialog.getByLabel("Message").fill("{{itemName}}: {{previous}}");
+    await dialog.getByRole("button", { name: "Create automation" }).click();
+    await expect(page.locator(".status-message .badge.ok")).toContainText("Created Gauze watch");
+
+    // Test run uses sample data and doesn't order anything.
+    const card = page.locator(".rule-card", { hasText: "Gauze watch" });
+    await card.getByRole("button", { name: "Test run" }).click();
+    const testRun = page.locator(".activity-item", { hasText: "Gauze watch" }).first();
+    await expect(testRun.locator(".pill", { hasText: "Test" })).toBeVisible();
+    await expect(testRun).toContainText("Test run: would order 50");
+    await expect(testRun).toContainText("Claude is off"); // E2E runs without an Anthropic key
+
+    // A real use drops the gauze below its threshold: the rule orders 50 more on its own.
+    expect((await request.post(`/api/supplies/${gauze.id}/use`, { headers, data: { quantity: 12 } })).ok()).toBeTruthy();
+    const live = page.locator(".activity-item", { hasText: "E2E gauze pads is down to 18 pads" });
+    await expect(live).toContainText("Ordered 50 pads of E2E gauze pads; 68 on hand now.", { timeout: 15_000 });
+    await expect(live.locator(".activity-steps li.ok")).toHaveCount(3);
+    const after = (await (await request.get("/api/supplies", { headers })).json()).items.find((i: { id: string }) => i.id === gauze.id);
+    expect(after.quantity).toBe(68);
+
+    // Delete it.
+    await page.getByRole("tab", { name: /^My automations/ }).click();
+    await card.getByRole("button", { name: "Delete" }).click();
+    await card.getByRole("button", { name: "Confirm delete" }).click();
+    await expect(card).toHaveCount(0);
+  });
+});
+
 test.describe("API regression", () => {
   test("auth, permissions, validation, and double booking", async ({ request }) => {
     // Not signed in.
@@ -340,6 +440,15 @@ test.describe("API regression", () => {
     const clash = await request.post(`/api/appointments/${mine.id}/reschedule`, { headers: as(sam), data: { newStart: future } });
     expect(clash.status()).toBe(409);
     expect((await clash.json()).error).toMatch(/just booked by someone else/);
+
+    // Automations: each account only gets its own portal's triggers and its own rules.
+    const staffRule = { name: "x", trigger: { type: "supply.low_stock", conditions: [] }, actions: [{ type: "notify", params: { message: "hi" } }] };
+    expect((await request.post("/api/automations", { headers: as(patient), data: staffRule })).status()).toBe(400);
+    const mineRule = await request.post("/api/automations", { headers: as(manager), data: staffRule });
+    expect(mineRule.status()).toBe(201);
+    const ruleId = (await mineRule.json()).rule.id;
+    expect((await request.patch(`/api/automations/${ruleId}`, { headers: as(sam), data: { enabled: false } })).status()).toBe(404);
+    expect((await request.delete(`/api/automations/${ruleId}`, { headers: as(manager) })).status()).toBe(204);
 
     // Scraping rejects non-web links.
     const ftp = await request.post("/api/food/catalog/scrape", { headers: as(manager), data: { url: "ftp://example.com/x" } });

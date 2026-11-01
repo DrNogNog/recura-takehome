@@ -18,6 +18,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       APPOINTMENTS_STORE: external
       SUPPLIES_STORE: external
+      AUTOMATIONS_STORE: external
       FOOD_STORE: external
       DATABASE_URL: postgres://recura:recura@postgres:5432/recura
       CASSANDRA_CONTACT_POINTS: cassandra
@@ -27,9 +28,6 @@ services:
       AWS_SECRET_ACCESS_KEY: local
       ELASTICSEARCH_URL: http://elasticsearch:9200
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      GOOGLE_CSE_ID: ${GOOGLE_CSE_ID:-}
-      FOOD_MARKET_URLS: ${FOOD_MARKET_URLS:-}
     depends_on:
       postgres: { condition: service_healthy }
       cassandra: { condition: service_healthy }

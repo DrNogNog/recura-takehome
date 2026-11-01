@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { emit } from "../automations/events.js";
 import { config } from "../config.js";
 import { TtlCache } from "../lib/cache.js";
 import { HttpError } from "../lib/http.js";
-import { JobQueue } from "../lib/queue.js";
 import { parseLinks } from "../lib/links.js";
 import { aiEnabled, planHeuristically, planWithClaude, tuneCalories } from "./planner.js";
 import { scrapeMarket } from "./scraper.js";
@@ -22,21 +22,6 @@ let search: FoodSearch;
 // Hot reads (item search, nutrition summaries) are cached; any food update clears them.
 const searchCache = new TtlCache<FoodItem[]>(5 * 60_000);
 const itemCache = new TtlCache<FoodItem>(10 * 60_000, 2000);
-
-type FoodJob = { kind: "upsert"; item: FoodItem } | { kind: "scrape"; url: string };
-
-/** Food updates go through a queue so scrapes and writes never block a request. */
-const updates = new JobQueue<FoodJob>("food-updates", async (job) => {
-  if (job.kind === "upsert") {
-    await store.putItem(job.item);
-    await search.index(job.item);
-    itemCache.set(job.item.id, job.item);
-    searchCache.clear();
-  } else {
-    const reference = (await store.allItems()).filter((i) => !i.ownerId);
-    for (const item of await scrapeMarket(job.url, reference)) updates.send({ kind: "upsert", item });
-  }
-});
 
 export async function initFood() {
   if (config.foodStore === "external") {
@@ -63,14 +48,6 @@ export async function initFood() {
     }
   }
 }
-
-export function queueScrape(urls = config.foodMarketUrls) {
-  if (!urls.length) throw new HttpError(400, "No market URLs configured. Set FOOD_MARKET_URLS or pass urls.");
-  for (const url of urls) updates.send({ kind: "scrape", url });
-  return { queued: urls.length, queue: updates.status() };
-}
-
-export const queueStatus = () => updates.status();
 
 /** Shared market items plus `ownerId`'s personal catalog. */
 export function searchItems(q: { text?: string; maxPrice?: number; tags?: string[] }, ownerId?: string) {
@@ -324,6 +301,7 @@ export async function fillPlan(
   cal.settings = settings;
   cal.updatedAt = new Date().toISOString();
   await store.putCalendar(cal);
+  if (dates.length) await announceIfOverBudget(userId, today);
   return getMonth(userId, (input.date ?? input.month ?? today).slice(0, 7), today);
 }
 
@@ -334,6 +312,13 @@ export async function logMeal(userId: string, date: string, slot: MealSlot, eate
   meal.eaten = eaten;
   cal.updatedAt = new Date().toISOString();
   await store.putCalendar(cal);
+  if (!eaten) {
+    const weekAgo = addDays(today, -6);
+    const skippedThisWeek = Object.values(cal.days)
+      .filter((d) => d.date >= weekAgo && d.date <= today)
+      .reduce((n, d) => n + d.meals.filter((m) => m.eaten === false).length, 0);
+    emit("food.meal_skipped", { ownerId: userId, subject: `${date}:${slot}`, data: { slot, mealName: meal.name, date, skippedThisWeek } });
+  }
   return getMonth(userId, date.slice(0, 7), today);
 }
 
@@ -417,6 +402,20 @@ export async function nutritionReport(userId: string, today: string) {
   if (!insights.length) insights.push("This week's plan meets your calorie, budget, and nutrient targets.");
 
   return { range, daysFilled: n, dailyAverage: avg, percentOfDailyValue: pct, macroSplit, weekCost, insights };
+}
+
+/** Publishes food.plan_over_budget when the coming week's plan costs more than the budget pace. */
+async function announceIfOverBudget(userId: string, today: string) {
+  const report = await nutritionReport(userId, today);
+  if (!report.daysFilled || report.weekCost === undefined) return;
+  const cal = await loadCalendar(userId);
+  const budget = +((cal.settings.weeklyBudget / 7) * report.daysFilled).toFixed(2);
+  if (report.weekCost <= budget) return;
+  emit("food.plan_over_budget", {
+    ownerId: userId,
+    subject: `week:${today}`,
+    data: { weekCost: report.weekCost, budget, overBy: +(report.weekCost - budget).toFixed(2) },
+  });
 }
 
 /** Estimates actual eating habits from every meal logged as eaten or skipped. */

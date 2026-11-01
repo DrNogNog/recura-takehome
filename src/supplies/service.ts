@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { emit } from "../automations/events.js";
 import { config } from "../config.js";
 import { HttpError } from "../lib/http.js";
 import { onLeader } from "../lib/leader.js";
@@ -112,6 +113,7 @@ async function save(before: SupplyItem, patch: Partial<SupplyItem>, changedBy: s
   if (!(await repo.update(after, before.version))) {
     throw new HttpError(409, `${before.name} was changed by someone else, refresh and try again`);
   }
+  announce(after, action, "quantity" in changes);
   await repo.addHistory({
     id: randomUUID(),
     itemId: after.id,
@@ -180,6 +182,20 @@ function validatePatch(body: Record<string, unknown>): Partial<SupplyItem> {
   if (has("sterilizeAfterEachUse")) p.sterilizeAfterEachUse = bool(body.sterilizeAfterEachUse, "Sterilize after each use");
   if (p.requiresSterilization === false) p.sterilizeAfterEachUse = false;
   return p;
+}
+
+/** Publishes the supply events automations react to. */
+function announce(item: SupplyItem, action: HistoryEntry["action"], quantityChanged: boolean) {
+  const base = { itemId: item.id, itemName: item.name, location: item.location };
+  if (item.consumable && quantityChanged && action !== "restock" && item.quantity <= item.reorderThreshold) {
+    emit("supply.low_stock", {
+      subject: item.id,
+      data: { ...base, quantity: item.quantity, reorderThreshold: item.reorderThreshold, unit: item.unit, supplier: item.supplier.name },
+    });
+  }
+  if (action === "use" && item.requiresSterilization && item.sterilizeAfterEachUse) {
+    emit("supply.needs_sterilization", { subject: `${item.id}:${item.updatedAt}`, data: { ...base, lastUsedDate: item.lastUsedDate ?? "" } });
+  }
 }
 
 export async function updateSupply(id: string, body: Record<string, unknown>, changedBy: string) {

@@ -16,6 +16,7 @@ export const config = {
   appointmentsStore: store("APPOINTMENTS_STORE"), // Cassandra
   suppliesStore: store("SUPPLIES_STORE"), // Postgres
   foodStore: store("FOOD_STORE"), // DynamoDB + Elasticsearch
+  automationsStore: store("AUTOMATIONS_STORE"), // Postgres (memory = saved to data/automations.json)
 
   databaseUrl: process.env.DATABASE_URL,
   cassandra: {
@@ -37,8 +38,5 @@ export const config = {
 
   // Optional integrations; features degrade gracefully when unset.
   anthropicEnabled: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
-  googleApiKey: process.env.GOOGLE_API_KEY,
-  googleCseId: process.env.GOOGLE_CSE_ID,
-  foodMarketUrls: (process.env.FOOD_MARKET_URLS ?? "").split(",").filter(Boolean),
   cdnBaseUrl: process.env.CDN_BASE_URL ?? "",
 };

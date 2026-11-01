@@ -465,20 +465,27 @@ function HistoryLog({ refreshKey }: { refreshKey: number }) {
 
 const fmt = (v: unknown) => (v === undefined || v === null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
 
+/** Recent innovations for an item: live results from Claude's web search, or plain search links without a key. */
 function Innovations({ item, onClose }: { item: Supply; onClose: () => void }) {
-  const [data, setData] = useState<{ source: string; results: Array<{ title: string; link: string; snippet: string }> } | null>(null);
+  const [data, setData] = useState<{ source: "claude" | "links"; results: Array<{ title: string; link: string; snippet: string }> } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    api<typeof data>(`/api/supplies/${item.id}/innovations?name=${encodeURIComponent(item.name)}`)
+    // A live web search can take a while; allow up to a minute.
+    api<NonNullable<typeof data>>(`/api/supplies/${item.id}/innovations?name=${encodeURIComponent(item.name)}`, { signal: AbortSignal.timeout(60_000) })
       .then(setData)
       .catch((e) => setError(e.message));
   }, [item]);
   return (
     <AppDialog title={`Recent innovations: ${item.name}`} onClose={onClose}>
       <ErrorNote error={error} />
-      {!data && !error && <Spinner />}
+      {!data && !error && (
+        <p className="muted row gap" role="status">
+          <Spinner /> Searching the web for recent innovations…
+        </p>
+      )}
       {data && (
         <>
+          {data.source === "claude" && <p className="muted small">Found by Claude with web search. Each result links to its source.</p>}
           <ul className="innovations">
             {data.results.map((r) => (
               <li key={r.link}>
@@ -490,7 +497,7 @@ function Innovations({ item, onClose }: { item: Supply; onClose: () => void }) {
             ))}
           </ul>
           {data.source === "links" && (
-            <p className="hint">Set GOOGLE_API_KEY and GOOGLE_CSE_ID to show live search results here.</p>
+            <p className="hint">These are search shortcuts. Add ANTHROPIC_API_KEY to .env to see live results found by Claude.</p>
           )}
         </>
       )}

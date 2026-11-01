@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { emit } from "../automations/events.js";
 import { config } from "../config.js";
+import { clinicTime } from "../lib/format.js";
 import { HttpError } from "../lib/http.js";
 import { listDoctors, listPatients } from "../auth/users.js";
 import { checkArrivalWindow, expectedStart } from "./calculators.js";
@@ -117,6 +119,16 @@ export async function checkIn(id: string, patientId: string) {
   if (!(await repo.update(updated, appt.version))) {
     throw new HttpError(409, "Appointment changed while checking in, try again");
   }
+  emit("appointment.checked_in", {
+    ownerId: patientId,
+    subject: appt.id,
+    data: {
+      minutesLate: arrival.minutesLate,
+      arrivalStatus: arrival.status.replace("_", " "),
+      doctorName: appt.doctorName,
+      scheduledTime: clinicTime(appt.scheduledAt),
+    },
+  });
   return { alreadyCheckedIn: false, appointment: await describe(updated), arrival };
 }
 
@@ -162,12 +174,37 @@ export async function reschedule(id: string, patientId: string, newStartIso: str
     throw new HttpError(409, "Appointment changed while rescheduling, try again");
   }
   await repo.releaseSlot(appt.doctorId, appt.scheduledAt, appt.id);
+  emit("appointment.rescheduled", {
+    ownerId: patientId,
+    subject: `${appt.id}:${newStart}`,
+    data: { previousTime: clinicTime(appt.scheduledAt), newTime: clinicTime(newStart), doctorName: appt.doctorName },
+  });
   return describe(updated);
 }
 
 export async function setDoctorDelay(doctorId: string, day: string, minutes: number) {
   await repo.setDelay(doctorId, day, Math.max(0, Math.round(minutes)));
-  return repo.getDelay(doctorId, day);
+  const delay = await repo.getDelay(doctorId, day);
+  if (delay.minutes > 0) await announceDelay(doctorId, day, delay.minutes);
+  return delay;
+}
+
+/** Tells each patient still waiting that day (via their automations) that the doctor is running late. */
+async function announceDelay(doctorId: string, day: string, minutes: number) {
+  for (const { slotStart, appointmentId } of await repo.slotHolders(doctorId, day)) {
+    const appt = await repo.get(appointmentId);
+    if (!appt || appt.status !== "scheduled" || appt.scheduledAt !== slotStart) continue;
+    emit("appointment.delayed", {
+      ownerId: appt.patientId,
+      subject: `${appt.id}:${minutes}`,
+      data: {
+        delayMinutes: minutes,
+        doctorName: appt.doctorName,
+        scheduledTime: clinicTime(appt.scheduledAt),
+        expectedTime: clinicTime(expectedStart(new Date(appt.scheduledAt), minutes).toISOString()),
+      },
+    });
+  }
 }
 
 // ---------- Demo admin ----------

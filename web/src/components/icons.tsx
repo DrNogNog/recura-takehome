@@ -34,4 +34,5 @@ export const IconGrid = ({ size = 18 }: P) => svg(size, <><rect x="3" y="3" widt
 export const IconExpand = ({ size = 18 }: P) => svg(size, <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />);
 export const IconX = ({ size = 18 }: P) => svg(size, <path d="M18 6 6 18M6 6l12 12" />);
 export const IconMenu = ({ size = 18 }: P) => svg(size, <path d="M4 7h16M4 12h16M4 17h16" />);
+export const IconBolt = ({ size = 18 }: P) => svg(size, <path d="M13 2 4 14h7l-1 8 9-12h-7z" />);
 export const IconPlay = ({ size = 16 }: P) => svg(size, <path d="M7 4v16l13-8z" />);

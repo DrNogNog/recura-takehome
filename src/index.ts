@@ -5,6 +5,7 @@ import { startLeaderElection } from "./lib/leader.js";
 import { initAppointments } from "./appointments/service.js";
 import { initSupplies } from "./supplies/service.js";
 import { initFood } from "./food/service.js";
+import { initAutomations } from "./automations/service.js";
 
 // Production must not run with the built-in demo signing key.
 if (process.env.NODE_ENV === "production" && config.jwtSecret === "dev-only-change-me") {
@@ -17,6 +18,7 @@ const steps: Array<[string, () => Promise<unknown>]> = [
   [`appointments (${config.appointmentsStore === "external" ? "Cassandra" : "memory"})`, initAppointments],
   [`supplies (${config.suppliesStore === "external" ? "Postgres" : "memory"})`, initSupplies],
   [`food (${config.foodStore === "external" ? "DynamoDB + Elasticsearch" : "memory"})`, initFood],
+  [`automations (${config.automationsStore === "external" ? "Postgres" : "file"})`, initAutomations],
 ];
 for (const [name, init] of steps) {
   try {

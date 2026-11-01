@@ -17,6 +17,7 @@ const DEMO_ADMIN = {
 import { AppointmentWorkflow, CalculatorWorkflow, CheckInWorkflow, RescheduleWorkflow } from "./workflows/Appointment";
 import { RestockWorkflow } from "./workflows/Restock";
 import { FoodWorkflow } from "./workflows/Food";
+import { AutomationsWorkflow } from "./workflows/automations";
 
 type WorkflowView = (props: { onReady: () => void }) => React.ReactNode;
 
@@ -27,11 +28,13 @@ const VIEWS: Record<User["portal"], Record<string, WorkflowView>> = {
     checkin: CheckInWorkflow,
     reschedule: RescheduleWorkflow,
     calculator: CalculatorWorkflow,
+    automations: AutomationsWorkflow,
     admin: DemoAdminWorkflow, // opened from the hamburger menu, not the dropdown
   },
   staff: {
     restock: RestockWorkflow,
     food: FoodWorkflow,
+    automations: AutomationsWorkflow,
   },
 };
 

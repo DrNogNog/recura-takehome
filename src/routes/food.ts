@@ -51,15 +51,6 @@ foodRouter.delete(
   })
 );
 
-foodRouter.post("/scrape", (req, res) => {
-  const urls = Array.isArray(req.body?.urls) ? req.body.urls.map(String) : undefined;
-  res.status(202).json(svc.queueScrape(urls));
-});
-
-foodRouter.get("/queue", (_req, res) => {
-  res.json(svc.queueStatus());
-});
-
 /** Query: month=YYYY-MM (defaults to the current month), today=YYYY-MM-DD (the viewer's date). */
 foodRouter.get(
   "/plan",
