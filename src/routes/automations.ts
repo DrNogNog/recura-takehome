@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth/middleware.js";
 import { handle } from "../lib/http.js";
+import { parseFilter } from "../automations/history.js";
 import * as svc from "../automations/service.js";
 
 /** Automations: each account manages its own rules and sees its own run history. */
@@ -61,6 +62,22 @@ automationsRouter.get(
 automationsRouter.get("/queue", (_req, res) => {
   res.json(svc.queueStatus());
 });
+
+automationsRouter.get(
+  "/history",
+  handle(async (req, res) => {
+    res.json(await svc.history(req.user!, parseFilter(req.query)));
+  })
+);
+
+automationsRouter.get(
+  "/history.csv",
+  handle(async (req, res) => {
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="recura-automation-history-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(await svc.historyAsCsv(req.user!, parseFilter(req.query)));
+  })
+);
 
 automationsRouter.get(
   "/runs",

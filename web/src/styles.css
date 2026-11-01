@@ -998,3 +998,13 @@ td select { min-height: 36px; padding: 0.3rem 2rem 0.3rem 0.5rem; font-size: 0.8
 .toast-close { min-height: 28px; padding: 0.2rem 0.4rem; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* ---------- Automation history ---------- */
+.history-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin: 0.25rem 0 0.5rem; }
+.history-filters .menu-select.sm .ms-trigger { margin-bottom: 0; min-width: 190px; }
+.history-tables { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: 1.25rem; }
+.history-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.history-table th { text-align: left; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+.history-table td { padding: 0.55rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.history-table .num { text-align: right; }
+@media (max-width: 760px) { .history-tables { grid-template-columns: 1fr; } }

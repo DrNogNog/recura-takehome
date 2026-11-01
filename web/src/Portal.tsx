@@ -5,8 +5,9 @@ import ListItemIcon from "@mui/material/ListItemIcon";
 import Divider from "@mui/material/Divider";
 import { api, navigate, type User } from "./api";
 import { BrandLogo } from "./Login";
-import { ErrorBoundary, ErrorNote, IconChart, IconGrid, IconHome, IconLogout, IconMenu, IconPlay, LoadingScreen, Spinner, workflowIcon, WorkflowSelect } from "./components";
+import { ErrorBoundary, ErrorNote, IconChart, IconClock, IconGrid, IconHome, IconLogout, IconMenu, IconPlay, LoadingScreen, Spinner, workflowIcon, WorkflowSelect } from "./components";
 import { DemoAdminWorkflow } from "./workflows/Admin";
+import { HistoryWorkflow } from "./workflows/automations/History";
 import { AutomationPopups } from "./workflows/automations/Popups";
 
 /** Demo admin page: opened from the patient hamburger menu (not part of the workflow dropdown). */
@@ -15,6 +16,17 @@ const DEMO_ADMIN = {
   label: "Demo admin",
   description: "Set and switch patient times, and see every patient's schedule on a Gantt chart.",
 };
+
+/** Automation history report: opened from the hamburger menu in both portals. */
+const HISTORY = {
+  id: "history",
+  label: "Automation history",
+  description: "A report of every automation that has run: what triggered it, each step's result, and who got pop-ups.",
+};
+
+/** Pages opened from the hamburger menu rather than the workflow dropdown. */
+const MENU_PAGES = [HISTORY, DEMO_ADMIN];
+const menuPageIcon = (id: string, size?: number) => (id === HISTORY.id ? <IconClock size={size} /> : <IconChart size={size} />);
 import { AppointmentWorkflow, CalculatorWorkflow, CheckInWorkflow, RescheduleWorkflow } from "./workflows/Appointment";
 import { RestockWorkflow } from "./workflows/Restock";
 import { FoodWorkflow } from "./workflows/Food";
@@ -30,12 +42,14 @@ const VIEWS: Record<User["portal"], Record<string, WorkflowView>> = {
     reschedule: RescheduleWorkflow,
     calculator: CalculatorWorkflow,
     automations: AutomationsWorkflow,
+    history: HistoryWorkflow, // opened from the hamburger menu, not the dropdown
     admin: DemoAdminWorkflow, // opened from the hamburger menu, not the dropdown
   },
   staff: {
     restock: RestockWorkflow,
     food: FoodWorkflow,
     automations: AutomationsWorkflow,
+    history: HistoryWorkflow, // opened from the hamburger menu
   },
 };
 
@@ -144,7 +158,19 @@ function AccountMenu({
             {w.label}
           </MenuItem>
         ))}
-        {user.portal === "patient" && <Divider />}
+        <Divider />
+        <MenuItem
+          selected={running === HISTORY.id}
+          onClick={() => {
+            close();
+            onOpenWorkflow(HISTORY.id);
+          }}
+        >
+          <ListItemIcon>
+            <IconClock />
+          </ListItemIcon>
+          History
+        </MenuItem>
         {user.portal === "patient" && (
           <MenuItem
             selected={running === DEMO_ADMIN.id}
@@ -235,7 +261,7 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
   }
 
   const View = running ? VIEWS[user.portal][running] : undefined;
-  const runningWorkflow = running === DEMO_ADMIN.id ? DEMO_ADMIN : workflows?.find((w) => w.id === running);
+  const runningWorkflow = MENU_PAGES.find((p) => p.id === running) ?? workflows?.find((w) => w.id === running);
   const current = workflows?.find((w) => w.id === selected);
   const ready = useCallback(() => setLoading(false), []);
 
@@ -274,7 +300,7 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
         // Workflow page: the picker is gone; the hamburger menu leads back to it.
         <main className="content" key={running}>
           <div className="wf-page-head">
-            <span className="wf-page-icon">{running === DEMO_ADMIN.id ? <IconChart size={28} /> : workflowIcon(running, 30)}</span>
+            <span className="wf-page-icon">{MENU_PAGES.some((p) => p.id === running) ? menuPageIcon(running, 28) : workflowIcon(running, 30)}</span>
             <div>
               <h1>{runningWorkflow?.label ?? "Workflow"}</h1>
               {runningWorkflow && <p>{runningWorkflow.description}</p>}

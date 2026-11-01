@@ -413,6 +413,33 @@ test.describe("automations (staff)", () => {
   });
 });
 
+test.describe("automation history", () => {
+  test("the hamburger menu opens a report of past runs, with filters", async ({ page }) => {
+    await login(page, MANAGER);
+    await openAccountMenu(page);
+    await page.getByRole("menuitem", { name: "History" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Automation history" })).toBeVisible();
+    await expect(page.locator(".loading-screen")).toHaveCount(0);
+
+    // The staff test's real run of "Gauze watch" is in the report; its test run is hidden by default.
+    const row = page.locator(".history-table tbody tr", { hasText: "Gauze watch" });
+    await expect(row).toContainText("A supply runs low");
+    await expect(row.locator("td.num")).toHaveText("1");
+    await expect(page.locator(".activity-item", { hasText: "Gauze watch" })).toHaveCount(1);
+    await expect(page.locator(".stat", { hasText: "Pop-ups sent" }).locator(".stat-value")).not.toHaveText("0");
+
+    await page.getByLabel("Include test runs").check();
+    await expect(page.locator(".activity-item", { hasText: "Gauze watch" })).toHaveCount(2);
+    await expect(page.locator(".activity-item .pill", { hasText: "Test" }).first()).toBeVisible();
+
+    // Filter to a part with no runs.
+    await page.getByRole("button", { name: "Part" }).click();
+    await page.getByRole("option", { name: "Patient appointments" }).click();
+    await expect(page.locator(".activity-item")).toHaveCount(0);
+    await expect(page.locator(".stat", { hasText: "Runs" }).first().locator(".stat-value")).toHaveText("0");
+  });
+});
+
 test.describe("API regression", () => {
   test("auth, permissions, validation, and double booking", async ({ request }) => {
     // Not signed in.

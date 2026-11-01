@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { getPool } from "../db/pool.js";
 import type { AutomationRepo, Notification, Rule, Run, TriggerType } from "./types.js";
 
-const MAX_PER_USER = 100; // newest runs / notifications kept per person
+const MAX_RUNS = 500; // newest runs kept per person (the History report)
+const MAX_POPUPS = 100; // newest pop-ups kept per person
 
 /** Keeps each person's newest `max` entries (the list is newest first). */
-function capPerUser<T>(list: T[], userOf: (t: T) => string, max = MAX_PER_USER): T[] {
+function capPerUser<T>(list: T[], userOf: (t: T) => string, max: number): T[] {
   const counts = new Map<string, number>();
   return list.filter((t) => {
     const n = (counts.get(userOf(t)) ?? 0) + 1;
@@ -60,14 +61,14 @@ export class FileAutomationRepo implements AutomationRepo {
     this.persist();
   }
   async addRun(run: Run) {
-    this.runList = capPerUser([run, ...this.runList], (r) => r.ownerId);
+    this.runList = capPerUser([run, ...this.runList], (r) => r.ownerId, MAX_RUNS);
     this.persist();
   }
   async runs(ownerId: string, limit: number) {
     return this.runList.filter((r) => r.ownerId === ownerId).slice(0, limit);
   }
   async addNotification(n: Notification) {
-    this.inbox = capPerUser([n, ...this.inbox], (x) => x.userId);
+    this.inbox = capPerUser([n, ...this.inbox], (x) => x.userId, MAX_POPUPS);
     this.persist();
   }
   async notifications(userId: string, limit: number) {

@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { HttpError } from "../lib/http.js";
 import { actionsFor } from "./actions/index.js";
 import { execute, queueStatus, startEngine } from "./engine.js";
+import { applyFilter, buildReport, historyCsv, type HistoryFilter } from "./history.js";
 import { FileAutomationRepo, PostgresAutomationRepo } from "./repos.js";
 import { templatesFor } from "./templates.js";
 import { TRIGGERS, triggersFor } from "./triggers.js";
@@ -77,6 +78,17 @@ export async function testRule(user: AuthUser, id: string) {
 }
 
 export const listRuns = (user: AuthUser) => repo.runs(user.id, 50);
+
+const HISTORY_LIMIT = 500;
+
+/** The History report: every past run of this account's automations, filtered. */
+export async function history(user: AuthUser, filter: HistoryFilter) {
+  return buildReport(applyFilter(await repo.runs(user.id, HISTORY_LIMIT), filter));
+}
+
+export async function historyAsCsv(user: AuthUser, filter: HistoryFilter) {
+  return historyCsv(applyFilter(await repo.runs(user.id, HISTORY_LIMIT), filter));
+}
 
 /** Pop-ups for this account (from its own automations or someone else's), optionally only newer than `since`. */
 export async function listInbox(user: AuthUser, since?: string) {
