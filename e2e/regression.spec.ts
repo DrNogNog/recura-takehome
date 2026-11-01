@@ -10,6 +10,7 @@ test.describe.configure({ mode: "serial" });
 
 const PATIENT = { username: "patient", password: "patient123" };
 const MANAGER = { username: "manager", password: "manager123" };
+const DOCTOR = { username: "doctor", password: "doctor123" };
 
 async function login(page: Page, who: { username: string; password: string }) {
   await page.goto("/login");
@@ -168,12 +169,12 @@ test.describe("patient workflows", () => {
     await runWorkflow(page, "Automations");
     await page.getByRole("button", { name: /Heads-up when my doctor runs late/ }).click();
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByLabel("Name")).toHaveValue("Heads-up when my doctor runs late");
+    await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Heads-up when my doctor runs late");
     await dialog.getByRole("button", { name: "Create automation" }).click();
     await expect(page.locator(".status-message .badge.ok")).toContainText("Created Heads-up when my doctor runs late");
     const card = page.locator(".rule-card", { hasText: "Heads-up when my doctor runs late" });
     await expect(card).toContainText("delay (minutes) is at least 15");
-    await expect(card.locator(".rule-chip")).toHaveText([/1\. Ask Claude/, /2\. Send me a notification/]);
+    await expect(card.locator(".rule-chip")).toHaveText([/1\. Ask Claude/]);
 
     // The doctor reports 25 minutes late on the day of this patient's appointment.
     const token = await apiToken(request, PATIENT);
@@ -186,8 +187,15 @@ test.describe("patient workflows", () => {
     await page.getByRole("tab", { name: /^Activity/ }).click();
     const item = page.locator(".activity-item", { hasText: "Heads-up when my doctor runs late" }).first();
     await expect(item).toContainText("running 25 min late", { timeout: 15_000 });
-    await expect(item.locator(".activity-steps li.ok")).toHaveCount(2);
+    await expect(item.locator(".activity-steps li.ok")).toHaveCount(1);
+    await expect(item).toContainText("Sent to you, Dr. Morgan Lee");
     await expect(item.locator(".pill", { hasText: "Test" })).toHaveCount(0);
+
+    // Claude's note pops up under the navbar for the patient, and reaches their doctor too.
+    await expect(page.locator(".toast", { hasText: "running 25 min late" })).toBeVisible({ timeout: 10_000 });
+    const doctor = { Authorization: `Bearer ${await apiToken(request, DOCTOR)}` };
+    const doctorPopups = (await (await request.get("/api/automations/inbox", { headers: doctor })).json()).notifications;
+    expect(doctorPopups.some((n: { message: string; fromName: string }) => n.message.includes("running 25 min late") && n.fromName === "Alex Rivera")).toBeTruthy();
 
     // Turn it off, and clear the delay for the tests after this one.
     await page.getByRole("tab", { name: /^My automations/ }).click();
@@ -363,7 +371,7 @@ test.describe("automations (staff)", () => {
     await runWorkflow(page, "Automations");
     await page.getByRole("button", { name: "+ New automation" }).click();
     const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Name").fill("Gauze watch");
+    await dialog.getByLabel("Name", { exact: true }).fill("Gauze watch");
     // The trigger starts as "A supply runs low". Only for this item:
     await dialog.getByRole("button", { name: "+ Add condition" }).click();
     await dialog.getByLabel("Condition 1 value").fill("E2E gauze");
@@ -393,6 +401,7 @@ test.describe("automations (staff)", () => {
     const live = page.locator(".activity-item", { hasText: "E2E gauze pads is down to 18 pads" });
     await expect(live).toContainText("Ordered 50 pads of E2E gauze pads; 68 on hand now.", { timeout: 15_000 });
     await expect(live.locator(".activity-steps li.ok")).toHaveCount(3);
+    await expect(page.locator(".toast", { hasText: "E2E gauze pads:" }).first()).toBeVisible({ timeout: 10_000 });
     const after = (await (await request.get("/api/supplies", { headers })).json()).items.find((i: { id: string }) => i.id === gauze.id);
     expect(after.quantity).toBe(68);
 
@@ -449,6 +458,18 @@ test.describe("API regression", () => {
     const ruleId = (await mineRule.json()).rule.id;
     expect((await request.patch(`/api/automations/${ruleId}`, { headers: as(sam), data: { enabled: false } })).status()).toBe(404);
     expect((await request.delete(`/api/automations/${ruleId}`, { headers: as(manager) })).status()).toBe(204);
+    const quiet = await request.post("/api/automations", {
+      headers: as(manager),
+      data: { name: "Quiet sterilize", trigger: { type: "supply.needs_sterilization", conditions: [] }, actions: [{ type: "supply.order", params: { quantity: 1 } }], cooldownMinutes: 0 },
+    });
+    expect(quiet.status()).toBe(201);
+    const items = (await (await request.get("/api/supplies", { headers: as(manager) })).json()).items as Array<{ id: string; sterilizeAfterEachUse: boolean }>;
+    const tool = items.find((i) => i.sterilizeAfterEachUse)!;
+    expect((await request.post(`/api/supplies/${tool.id}/use`, { headers: as(manager), data: { quantity: 1 } })).ok()).toBeTruthy();
+    await expect
+      .poll(async () => (await (await request.get("/api/automations/inbox", { headers: as(manager) })).json()).notifications.some((n: { ruleName: string; message: string }) => n.ruleName === "Quiet sterilize" && /Order more stock ✓/.test(n.message)))
+      .toBeTruthy();
+    await request.delete(`/api/automations/${(await quiet.json()).rule.id}`, { headers: as(manager) });
 
     // Scraping rejects non-web links.
     const ftp = await request.post("/api/food/catalog/scrape", { headers: as(manager), data: { url: "ftp://example.com/x" } });

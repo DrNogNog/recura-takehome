@@ -4,7 +4,7 @@ import { matches, render } from "./conditions.js";
 import { startEngine } from "./engine.js";
 import { emit, withoutEvents } from "./events.js";
 import { parseRule } from "./validate.js";
-import type { AutomationRepo, Rule, Run, TriggerType } from "./types.js";
+import type { AutomationRepo, Notification, Rule, Run, TriggerType } from "./types.js";
 
 // ---------- Conditions and templates ----------
 
@@ -28,7 +28,7 @@ test("templates fill event fields and the previous step's output", () => {
 const valid = {
   name: "Late heads-up",
   trigger: { type: "appointment.delayed", conditions: [{ field: "delayMinutes", op: "gte", value: "15" }] },
-  actions: [{ type: "notify", params: { message: "Running {{delayMinutes}} min late" } }],
+  actions: [{ type: "notify", params: { to: "me_and_doctor", message: "Running {{delayMinutes}} min late" } }],
   cooldownMinutes: 30,
 };
 
@@ -46,13 +46,21 @@ test("validation rejects triggers, actions, and fields from the wrong place", ()
     () => parseRule({ ...valid, trigger: { type: "appointment.delayed", conditions: [{ field: "delayMinutes", op: "contains", value: "1" }] } }, "patient"),
     /doesn't fit/
   );
-  assert.throws(() => parseRule({ ...valid, actions: [{ type: "notify", params: { message: "  " } }] }, "patient"), /fill in Message/);
+  assert.throws(() => parseRule({ ...valid, actions: [{ type: "notify", params: { to: "me", message: "  " } }] }, "patient"), /fill in Message/);
 });
 
-test("ordering stock is only allowed for the low-stock trigger", () => {
+test("recipients must fit the trigger, and older rules default to sending to me", () => {
+  // "All doctors" is for clinic supplies, not a patient's appointment.
+  assert.throws(() => parseRule({ ...valid, actions: [{ type: "notify", params: { to: "doctors", message: "hi" } }] }, "patient"), /pick Send to/);
+  const old = parseRule({ ...valid, actions: [{ type: "notify", params: { message: "hi" } }] }, "patient");
+  assert.equal(old.actions[0].params.to, "me");
+});
+
+test("ordering stock is only allowed for supply triggers", () => {
   const order = { type: "supply.order", params: { quantity: 100 } };
   assert.ok(parseRule({ ...valid, trigger: { type: "supply.low_stock", conditions: [] }, actions: [order] }, "staff"));
-  assert.throws(() => parseRule({ ...valid, trigger: { type: "supply.needs_sterilization", conditions: [] }, actions: [order] }, "staff"), /can't run for this trigger/);
+  assert.ok(parseRule({ ...valid, trigger: { type: "supply.needs_sterilization", conditions: [] }, actions: [order] }, "staff"));
+  assert.throws(() => parseRule({ ...valid, trigger: { type: "food.meal_skipped", conditions: [] }, actions: [order] }, "staff"), /can't run for this trigger/);
 });
 
 // ---------- Engine ----------
@@ -60,6 +68,7 @@ test("ordering stock is only allowed for the low-stock trigger", () => {
 class FakeRepo implements AutomationRepo {
   rules: Rule[] = [];
   runList: Run[] = [];
+  inbox: Notification[] = [];
   async listRules(ownerId: string) {
     return this.rules.filter((r) => r.ownerId === ownerId);
   }
@@ -81,6 +90,12 @@ class FakeRepo implements AutomationRepo {
   async runs(ownerId: string) {
     return this.runList.filter((r) => r.ownerId === ownerId);
   }
+  async addNotification(n: Notification) {
+    this.inbox.push(n);
+  }
+  async notifications(userId: string) {
+    return this.inbox.filter((n) => n.userId === userId);
+  }
 }
 
 const rule = (patch: Partial<Rule>): Rule => ({
@@ -91,8 +106,8 @@ const rule = (patch: Partial<Rule>): Rule => ({
   enabled: true,
   trigger: { type: "appointment.delayed", conditions: [{ field: "delayMinutes", op: "gte", value: 15 }] },
   actions: [
-    { type: "notify", params: { message: "{{doctorName}} is {{delayMinutes}} min late" } },
-    { type: "notify", params: { message: "Again: {{previous}}" } },
+    { type: "notify", params: { to: "me", message: "{{doctorName}} is {{delayMinutes}} min late" } },
+    { type: "notify", params: { to: "me_and_doctor", message: "Again: {{previous}}" } },
   ],
   cooldownMinutes: 60,
   lastFired: {},
@@ -105,21 +120,39 @@ const repo = new FakeRepo();
 startEngine(repo);
 const settle = () => new Promise((r) => setTimeout(r, 30));
 const delay = (ownerId: string, minutes: number, subject = "appt-1") =>
-  emit("appointment.delayed", { ownerId, subject, data: { delayMinutes: minutes, doctorName: "Dr. Lee", scheduledTime: "2 PM", expectedTime: "2:20 PM" } });
-
-test("a matching event runs the actions in order, passing each output to the next", async () => {
-  repo.rules = [rule({})];
+  emit("appointment.delayed", { ownerId, subject, data: { delayMinutes: minutes, doctorId: "d1", doctorName: "Dr. Lee", scheduledTime: "2 PM", expectedTime: "2:20 PM" } });
+const reset = (rules: Rule[]) => {
+  repo.rules = rules;
   repo.runList = [];
+  repo.inbox = [];
+};
+
+test("a matching event runs the actions in order and delivers each notification", async () => {
+  reset([rule({})]);
   delay("p1", 20);
   await settle();
   assert.equal(repo.runList.length, 1);
   assert.deepEqual(repo.runList[0].actions.map((a) => a.output), ["Dr. Lee is 20 min late", "Again: Dr. Lee is 20 min late"]);
   assert.equal(repo.runList[0].status, "succeeded");
+  // The patient got both messages; their doctor got the second.
+  assert.deepEqual(repo.inbox.filter((n) => n.userId === "p1").map((n) => n.message), ["Dr. Lee is 20 min late", "Again: Dr. Lee is 20 min late"]);
+  assert.deepEqual(repo.inbox.filter((n) => n.userId === "d1").map((n) => n.message), ["Again: Dr. Lee is 20 min late"]);
+  assert.equal(repo.inbox[0].fromName, "Alex Rivera");
+});
+
+test("every run from the bus notifies the owner, even when no step sent them anything", async () => {
+  reset([rule({ actions: [{ type: "notify", params: { to: "doctor", message: "Patient knows you're late" } }] })]);
+  delay("p1", 20);
+  await settle();
+  const toPatient = repo.inbox.filter((n) => n.userId === "p1");
+  assert.equal(toPatient.length, 1);
+  assert.match(toPatient[0].message, /Dr\. Lee is running 20 min late.*Late ran: Show a pop-up ✓/);
+  assert.equal(repo.runList[0].actions.at(-1)?.label, "Automatic pop-up");
+  assert.equal(repo.inbox.filter((n) => n.userId === "d1").length, 1);
 });
 
 test("rules skip events that fail conditions, belong to others, or are cooling down", async () => {
-  repo.rules = [rule({})];
-  repo.runList = [];
+  reset([rule({})]);
   delay("p1", 5); // condition fails
   delay("p2", 30); // someone else's appointment
   await settle();
@@ -135,8 +168,7 @@ test("rules skip events that fail conditions, belong to others, or are cooling d
 });
 
 test("disabled rules don't run, and actions' own changes publish no events", async () => {
-  repo.rules = [rule({ enabled: false }), rule({ id: "r2", cooldownMinutes: 0 })];
-  repo.runList = [];
+  reset([rule({ enabled: false }), rule({ id: "r2", cooldownMinutes: 0 })]);
   await withoutEvents(async () => delay("p1", 30));
   await settle();
   assert.equal(repo.runList.length, 0);

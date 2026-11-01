@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { api } from "../../api";
 import { AppDialog, ErrorNote, IconSparkle, IconX, MenuSelect, Spinner } from "../../components";
 import { useAction } from "../../hooks";
-import { actionsForTrigger, OPERATORS, opsFor, type ActionStep, type Catalog, type Condition, type Rule, type RuleInput } from "./types";
+import { actionsForTrigger, OPERATORS, optionsFor, opsFor, type ActionStep, type Catalog, type Condition, type Rule, type RuleInput } from "./types";
 
 type Draft = {
   name: string;
@@ -20,10 +20,25 @@ const toDraft = (r: RuleInput): Draft => ({
   cooldownMinutes: String(r.cooldownMinutes),
 });
 
-const blankAction = (catalog: Catalog, type: string): Draft["actions"][number] => ({
+/** A new step with empty fields; choices start on their first option for this trigger. */
+const blankAction = (catalog: Catalog, type: string, triggerType: string): Draft["actions"][number] => ({
   type,
-  params: Object.fromEntries((catalog.actions.find((a) => a.type === type)?.params ?? []).map((p) => [p.key, ""])),
+  params: Object.fromEntries(
+    (catalog.actions.find((a) => a.type === type)?.params ?? []).map((p) => [p.key, p.type === "choice" ? optionsFor(p, triggerType)[0]?.id ?? "" : ""])
+  ),
 });
+
+/** Keeps a step's choices valid after the trigger changes (e.g. "My doctor" → "Me"). */
+function fitChoices(catalog: Catalog, action: Draft["actions"][number], triggerType: string): Draft["actions"][number] {
+  const def = catalog.actions.find((a) => a.type === action.type);
+  const params = { ...action.params };
+  for (const p of def?.params ?? []) {
+    if (p.type !== "choice") continue;
+    const options = optionsFor(p, triggerType);
+    if (!options.some((o) => o.id === params[p.key])) params[p.key] = options[0]?.id ?? "";
+  }
+  return { ...action, params };
+}
 
 /** Create or edit a rule: When (trigger + conditions) → Then (ordered actions). */
 export function RuleBuilder({
@@ -43,7 +58,7 @@ export function RuleBuilder({
     const start = rule ?? template;
     if (start) return toDraft(start);
     const trigger = catalog.triggers[0];
-    return { name: "", triggerType: trigger.type, conditions: [], actions: [blankAction(catalog, "notify")], cooldownMinutes: "60" };
+    return { name: "", triggerType: trigger.type, conditions: [], actions: [blankAction(catalog, "notify", trigger.type)], cooldownMinutes: "60" };
   });
   const { busy, error, run } = useAction();
   const trigger = catalog.triggers.find((t) => t.type === d.triggerType)!;
@@ -53,11 +68,11 @@ export function RuleBuilder({
   function changeTrigger(type: string) {
     const fields = new Set(catalog.triggers.find((t) => t.type === type)?.fields.map((f) => f.key));
     const allowed = new Set(actionsForTrigger(catalog, type).map((a) => a.type));
-    const actions = d.actions.filter((a) => allowed.has(a.type));
+    const actions = d.actions.filter((a) => allowed.has(a.type)).map((a) => fitChoices(catalog, a, type));
     update({
       triggerType: type,
       conditions: d.conditions.filter((c) => fields.has(c.field)),
-      actions: actions.length ? actions : [blankAction(catalog, "notify")],
+      actions: actions.length ? actions : [blankAction(catalog, "notify", type)],
     });
   }
 
@@ -84,7 +99,7 @@ export function RuleBuilder({
       },
       actions: d.actions.map((a): ActionStep => {
         const def = catalog.actions.find((x) => x.type === a.type);
-        return { type: a.type, params: Object.fromEntries((def?.params ?? []).map((p) => [p.key, p.type === "number" ? Number(a.params[p.key]) : a.params[p.key] ?? ""])) };
+        return { type: a.type, params: Object.fromEntries((def?.params ?? []).map((p) => [p.key, p.type === "number" ? Number(a.params[p.key]) : (a.params[p.key] ?? "")])) };
       }),
       cooldownMinutes: Number(d.cooldownMinutes),
     };
@@ -183,7 +198,7 @@ export function RuleBuilder({
                       ariaLabel={`Action ${i + 1}`}
                       size="sm"
                       value={a.type}
-                      onChange={(type) => setAction(i, blankAction(catalog, type))}
+                      onChange={(type) => setAction(i, blankAction(catalog, type, d.triggerType))}
                       options={available.map((x) => ({ id: x.type, label: x.label, description: x.description, icon: x.ai ? <IconSparkle size={16} /> : undefined }))}
                     />
                     <span className="rule-action-tools">
@@ -199,7 +214,19 @@ export function RuleBuilder({
                     </span>
                   </div>
                   {def?.ai && !catalog.aiEnabled && <p className="muted small">Claude is off on this server, so this step writes a plain summary instead.</p>}
-                  {def?.params.map((p) => (
+                  {def?.params.map((p) =>
+                    p.type === "choice" ? (
+                      <div key={p.key} className="rule-param">
+                        <span id={`p-${i}-${p.key}`}>{p.label}</span>
+                        <MenuSelect
+                          labelId={`p-${i}-${p.key}`}
+                          size="sm"
+                          value={a.params[p.key] ?? ""}
+                          onChange={(v) => setAction(i, { ...a, params: { ...a.params, [p.key]: v } })}
+                          options={optionsFor(p, d.triggerType).map((o) => ({ id: o.id, label: o.label }))}
+                        />
+                      </div>
+                    ) : (
                     <label key={p.key} className="rule-param">
                       {p.label}
                       {p.type === "longtext" ? (
@@ -216,13 +243,14 @@ export function RuleBuilder({
                         />
                       )}
                     </label>
-                  ))}
+                    )
+                  )}
                 </li>
               );
             })}
           </ol>
           {d.actions.length < 5 && (
-            <button type="button" className="btn small" onClick={() => update({ actions: [...d.actions, blankAction(catalog, "notify")] })}>
+            <button type="button" className="btn small" onClick={() => update({ actions: [...d.actions, blankAction(catalog, "notify", d.triggerType)] })}>
               + Add action
             </button>
           )}

@@ -61,6 +61,21 @@ export interface ActionResult {
   label: string;
   ok: boolean;
   output: string;
+  /** Who this step showed a pop-up to ("you", "Dr. Morgan Lee"). */
+  sentTo?: string[];
+}
+
+/** A pop-up an automation delivered to someone; shown under the navbar when they're signed in. */
+export interface Notification {
+  id: string;
+  userId: string;
+  message: string;
+  ruleName: string;
+  /** Name of the person whose automation sent it. */
+  fromName: string;
+  trigger: TriggerType;
+  runId: string;
+  at: string;
 }
 
 export interface Run {
@@ -85,4 +100,6 @@ export interface AutomationRepo {
   deleteRule(id: string): Promise<void>;
   addRun(run: Run): Promise<void>;
   runs(ownerId: string, limit: number): Promise<Run[]>;
+  addNotification(n: Notification): Promise<void>;
+  notifications(userId: string, limit: number): Promise<Notification[]>;
 }

@@ -3,7 +3,7 @@ import type { AuthUser } from "../auth/middleware.js";
 import { config } from "../config.js";
 import { HttpError } from "../lib/http.js";
 import { actionsFor } from "./actions/index.js";
-import { execute, startEngine } from "./engine.js";
+import { execute, queueStatus, startEngine } from "./engine.js";
 import { FileAutomationRepo, PostgresAutomationRepo } from "./repos.js";
 import { templatesFor } from "./templates.js";
 import { TRIGGERS, triggersFor } from "./triggers.js";
@@ -77,3 +77,11 @@ export async function testRule(user: AuthUser, id: string) {
 }
 
 export const listRuns = (user: AuthUser) => repo.runs(user.id, 50);
+
+/** Pop-ups for this account (from its own automations or someone else's), optionally only newer than `since`. */
+export async function listInbox(user: AuthUser, since?: string) {
+  const all = await repo.notifications(user.id, 50);
+  return since ? all.filter((n) => n.at > since) : all;
+}
+
+export { queueStatus };

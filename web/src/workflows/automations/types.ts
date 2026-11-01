@@ -16,10 +16,17 @@ export interface TriggerDef {
   fields: FieldDef[];
 }
 
+export interface ChoiceOption {
+  id: string;
+  label: string;
+  triggers?: string[];
+}
+
 export interface ParamDef {
   key: string;
   label: string;
-  type: "text" | "longtext" | "number";
+  type: "text" | "longtext" | "number" | "choice";
+  options?: ChoiceOption[];
   placeholder?: string;
   min?: number;
   max?: number;
@@ -76,7 +83,15 @@ export interface Run {
   test: boolean;
   status: "succeeded" | "partial" | "failed";
   startedAt: string;
-  actions: Array<{ type: string; label: string; ok: boolean; output: string }>;
+  actions: Array<{ type: string; label: string; ok: boolean; output: string; sentTo?: string[] }>;
+}
+
+export interface Notification {
+  id: string;
+  message: string;
+  ruleName: string;
+  fromName: string;
+  at: string;
 }
 
 export const OPERATORS: Record<Operator, string> = {
@@ -88,6 +103,10 @@ export const OPERATORS: Record<Operator, string> = {
   contains: "contains",
 };
 export const opsFor = (field?: FieldDef): Operator[] => (field?.type === "number" ? ["gte", "gt", "lte", "lt", "eq"] : ["contains", "eq"]);
+
+/** The choices of a param that fit this trigger (e.g. "My doctor" only for appointments). */
+export const optionsFor = (param: ParamDef, triggerType: string) =>
+  (param.options ?? []).filter((o) => !o.triggers || o.triggers.includes(triggerType));
 
 /** Actions a trigger can use (some, like ordering stock, only fit certain triggers). */
 export const actionsForTrigger = (catalog: Catalog, triggerType: string) =>

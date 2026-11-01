@@ -14,11 +14,11 @@ export const foodReplan: ActionHandler = {
   async run(_params, { rule, test }) {
     const today = resolveToday();
     const date = tomorrow(today);
-    if (test) return `Test run: would re-plan meals for ${date}.`;
+    if (test) return { output: `Test run: would re-plan meals for ${date}.` };
     const month = await fillPlan(rule.ownerId, { date }, today);
     const day = month.days[date];
-    return day
-      ? `Re-planned ${date}: ${day.meals.length} meals, ${Math.round(day.nutrients.calories)} kcal, $${day.cost}.`
-      : `Re-planned ${date}.`;
+    return {
+      output: day ? `Re-planned ${date}: ${day.meals.length} meals, ${Math.round(day.nutrients.calories)} kcal, $${day.cost}.` : `Re-planned ${date}.`,
+    };
   },
 };

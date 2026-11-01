@@ -51,6 +51,18 @@ automationsRouter.post(
 );
 
 automationsRouter.get(
+  "/inbox",
+  handle(async (req, res) => {
+    const since = typeof req.query.since === "string" ? req.query.since : undefined;
+    res.json({ notifications: await svc.listInbox(req.user!, since) });
+  })
+);
+
+automationsRouter.get("/queue", (_req, res) => {
+  res.json(svc.queueStatus());
+});
+
+automationsRouter.get(
   "/runs",
   handle(async (req, res) => {
     res.json({ runs: await svc.listRuns(req.user!) });

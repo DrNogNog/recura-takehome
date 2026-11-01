@@ -6,7 +6,8 @@ import { foodReplan } from "./foodReplan.js";
 import { notify } from "./notify.js";
 import { supplyOrder } from "./supplyOrder.js";
 
-export type { ActionContext, ActionHandler, ParamDef } from "./action.js";
+export type { ActionContext, ActionHandler, ActionOutput, ChoiceOption, ParamDef } from "./action.js";
+export { optionsFor } from "./action.js";
 
 /** Every action a rule can run. Add a new kind of step by adding a handler here. */
 const LIST: ActionHandler[] = [ai, notify, supplyOrder, foodReplan];

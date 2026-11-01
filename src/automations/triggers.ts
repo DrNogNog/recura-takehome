@@ -33,7 +33,7 @@ const LIST: TriggerDef[] = [
     description: "The doctor reports a delay on the day of your appointment.",
     scope: "owner",
     fields: [num("delayMinutes", "Delay (minutes)"), text("doctorName", "Doctor"), text("scheduledTime", "Booked time"), text("expectedTime", "Expected time")],
-    sample: { delayMinutes: 25, doctorName: "Dr. Morgan Lee", scheduledTime: "Tue 2:00 PM", expectedTime: "Tue 2:25 PM" },
+    sample: { delayMinutes: 25, doctorId: "d1", doctorName: "Dr. Morgan Lee", scheduledTime: "Tue 2:00 PM", expectedTime: "Tue 2:25 PM" },
     summary: (d) => `${d.doctorName} is running ${d.delayMinutes} min late; expected ${d.expectedTime}`,
   },
   {
@@ -43,7 +43,7 @@ const LIST: TriggerDef[] = [
     description: "You check in for your appointment.",
     scope: "owner",
     fields: [num("minutesLate", "Minutes late"), text("arrivalStatus", "Arrival (early, on time, late)"), text("doctorName", "Doctor"), text("scheduledTime", "Booked time")],
-    sample: { minutesLate: 6, arrivalStatus: "on time", doctorName: "Dr. Morgan Lee", scheduledTime: "Tue 2:00 PM" },
+    sample: { minutesLate: 6, arrivalStatus: "on time", doctorId: "d1", doctorName: "Dr. Morgan Lee", scheduledTime: "Tue 2:00 PM" },
     summary: (d) => `Checked in ${d.arrivalStatus} for ${d.scheduledTime} (${d.minutesLate} min late)`,
   },
   {
@@ -53,7 +53,7 @@ const LIST: TriggerDef[] = [
     description: "Your appointment moves to a new time.",
     scope: "owner",
     fields: [text("previousTime", "Previous time"), text("newTime", "New time"), text("doctorName", "Doctor")],
-    sample: { previousTime: "Tue 2:00 PM", newTime: "Wed 10:30 AM", doctorName: "Dr. Morgan Lee" },
+    sample: { previousTime: "Tue 2:00 PM", newTime: "Wed 10:30 AM", doctorId: "d1", doctorName: "Dr. Morgan Lee" },
     summary: (d) => `Moved from ${d.previousTime} to ${d.newTime}`,
   },
 
@@ -75,7 +75,7 @@ const LIST: TriggerDef[] = [
     description: "Reusable equipment that must be sterilized after each use was used.",
     scope: "portal",
     fields: [text("itemName", "Item"), text("location", "Location"), text("lastUsedDate", "Last used")],
-    sample: { itemId: "sample", itemName: "Stainless steel suture scissors", location: "Procedure Room", lastUsedDate: "2026-10-31" },
+    sample: { itemId: "sample", itemName: "Stainless steel suture scissors", unit: "pairs", location: "Procedure Room", lastUsedDate: "2026-10-31" },
     summary: (d) => `${d.itemName} in ${d.location} was used on ${d.lastUsedDate} and needs sterilizing`,
   },
 

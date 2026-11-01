@@ -30,6 +30,7 @@ export function ActivityFeed({ runs }: { runs: Run[] }) {
                 <div>
                   <span className="activity-step-label">{a.label}</span>
                   <p>{a.output}</p>
+                  {a.sentTo && a.sentTo.length > 0 && <p className="muted small activity-sent">Sent to {a.sentTo.join(", ")}</p>}
                 </div>
               </li>
             ))}

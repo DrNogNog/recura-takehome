@@ -125,6 +125,7 @@ export async function checkIn(id: string, patientId: string) {
     data: {
       minutesLate: arrival.minutesLate,
       arrivalStatus: arrival.status.replace("_", " "),
+      doctorId: appt.doctorId,
       doctorName: appt.doctorName,
       scheduledTime: clinicTime(appt.scheduledAt),
     },
@@ -177,7 +178,7 @@ export async function reschedule(id: string, patientId: string, newStartIso: str
   emit("appointment.rescheduled", {
     ownerId: patientId,
     subject: `${appt.id}:${newStart}`,
-    data: { previousTime: clinicTime(appt.scheduledAt), newTime: clinicTime(newStart), doctorName: appt.doctorName },
+    data: { previousTime: clinicTime(appt.scheduledAt), newTime: clinicTime(newStart), doctorId: appt.doctorId, doctorName: appt.doctorName },
   });
   return describe(updated);
 }
@@ -199,6 +200,7 @@ async function announceDelay(doctorId: string, day: string, minutes: number) {
       subject: `${appt.id}:${minutes}`,
       data: {
         delayMinutes: minutes,
+        doctorId: appt.doctorId,
         doctorName: appt.doctorName,
         scheduledTime: clinicTime(appt.scheduledAt),
         expectedTime: clinicTime(expectedStart(new Date(appt.scheduledAt), minutes).toISOString()),

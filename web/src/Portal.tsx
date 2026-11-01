@@ -7,6 +7,7 @@ import { api, navigate, type User } from "./api";
 import { BrandLogo } from "./Login";
 import { ErrorBoundary, ErrorNote, IconChart, IconGrid, IconHome, IconLogout, IconMenu, IconPlay, LoadingScreen, Spinner, workflowIcon, WorkflowSelect } from "./components";
 import { DemoAdminWorkflow } from "./workflows/Admin";
+import { AutomationPopups } from "./workflows/automations/Popups";
 
 /** Demo admin page: opened from the patient hamburger menu (not part of the workflow dropdown). */
 const DEMO_ADMIN = {
@@ -267,6 +268,7 @@ export function Portal({ user, onLogout }: { user: User; onLogout: () => void })
           onOpenWorkflow={openWorkflow}
         />
       </header>
+      <AutomationPopups userId={user.id} />
 
       {View && running ? (
         // Workflow page: the picker is gone; the hamburger menu leads back to it.

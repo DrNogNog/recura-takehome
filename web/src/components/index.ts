@@ -11,4 +11,5 @@ export { ErrorBoundary } from "./ErrorBoundary";
 export { MenuSelect, type MenuOption } from "./MenuSelect";
 export { WorkflowSelect, workflowIcon, type WorkflowOption } from "./WorkflowSelect";
 export { PhotoThumb, type PhotoFile } from "./PhotoThumb";
+export { ToastStack, type Toast } from "./ToastStack";
 export * from "./icons";

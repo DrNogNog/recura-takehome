@@ -194,7 +194,7 @@ function announce(item: SupplyItem, action: HistoryEntry["action"], quantityChan
     });
   }
   if (action === "use" && item.requiresSterilization && item.sterilizeAfterEachUse) {
-    emit("supply.needs_sterilization", { subject: `${item.id}:${item.updatedAt}`, data: { ...base, lastUsedDate: item.lastUsedDate ?? "" } });
+    emit("supply.needs_sterilization", { subject: `${item.id}:${item.updatedAt}`, data: { ...base, unit: item.unit, lastUsedDate: item.lastUsedDate ?? "" } });
   }
 }
 

@@ -1,6 +1,6 @@
 import type { PortalName } from "../auth/middleware.js";
 import { HttpError } from "../lib/http.js";
-import { ACTIONS } from "./actions/index.js";
+import { ACTIONS, optionsFor } from "./actions/index.js";
 import { TRIGGERS } from "./triggers.js";
 import type { ActionStep, Condition, Operator, RuleInput, TriggerType } from "./types.js";
 
@@ -83,6 +83,12 @@ function parseAction(raw: unknown, n: number, type: TriggerType, portal: PortalN
         bad(`Action ${n}: ${p.label} must be a number${p.min !== undefined ? ` from ${p.min} to ${p.max}` : ""}`);
       }
       params[p.key] = num as number;
+    } else if (p.type === "choice") {
+      const choices = optionsFor(p, type);
+      // Rules saved before this choice existed default to its first option.
+      const picked = v === undefined ? choices[0]?.id : v;
+      if (!choices.some((o) => o.id === picked)) bad(`Action ${n}: pick ${p.label} from ${choices.map((o) => o.label).join(", ")}`);
+      params[p.key] = picked as string;
     } else {
       const text = typeof v === "string" ? v.trim() : "";
       if (!text || text.length > (p.maxLength ?? 500)) bad(`Action ${n}: fill in ${p.label} (up to ${p.maxLength ?? 500} characters)`);

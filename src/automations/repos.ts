@@ -1,25 +1,37 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getPool } from "../db/pool.js";
-import type { AutomationRepo, Rule, Run, TriggerType } from "./types.js";
+import type { AutomationRepo, Notification, Rule, Run, TriggerType } from "./types.js";
 
-const MAX_RUNS_PER_OWNER = 100;
+const MAX_PER_USER = 100; // newest runs / notifications kept per person
+
+/** Keeps each person's newest `max` entries (the list is newest first). */
+function capPerUser<T>(list: T[], userOf: (t: T) => string, max = MAX_PER_USER): T[] {
+  const counts = new Map<string, number>();
+  return list.filter((t) => {
+    const n = (counts.get(userOf(t)) ?? 0) + 1;
+    counts.set(userOf(t), n);
+    return n <= max;
+  });
+}
 
 /**
- * Single-instance store: rules and recent runs in memory, saved to data/automations.json
+ * Single-instance store: rules, recent runs, and notifications in memory, saved to data/automations.json
  * (DATA_DIR moves it) so they survive restarts.
  */
 export class FileAutomationRepo implements AutomationRepo {
   private rules = new Map<string, Rule>();
   private runList: Run[] = [];
+  private inbox: Notification[] = [];
   private file = join(process.env.DATA_DIR ?? "data", "automations.json");
 
   constructor() {
     if (!existsSync(this.file)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.file, "utf8")) as { rules?: Rule[]; runs?: Run[] };
+      const saved = JSON.parse(readFileSync(this.file, "utf8")) as { rules?: Rule[]; runs?: Run[]; notifications?: Notification[] };
       for (const r of saved.rules ?? []) this.rules.set(r.id, r);
       this.runList = saved.runs ?? [];
+      this.inbox = saved.notifications ?? [];
     } catch (e) {
       console.error(`Couldn't read ${this.file} (${(e as Error).message}); starting with no automations.`);
     }
@@ -27,7 +39,7 @@ export class FileAutomationRepo implements AutomationRepo {
 
   private persist() {
     mkdirSync(join(this.file, ".."), { recursive: true });
-    writeFileSync(this.file, JSON.stringify({ rules: [...this.rules.values()], runs: this.runList }));
+    writeFileSync(this.file, JSON.stringify({ rules: [...this.rules.values()], runs: this.runList, notifications: this.inbox }));
   }
 
   async listRules(ownerId: string) {
@@ -48,18 +60,18 @@ export class FileAutomationRepo implements AutomationRepo {
     this.persist();
   }
   async addRun(run: Run) {
-    this.runList.unshift(run);
-    // Keep the newest runs for each owner.
-    const counts = new Map<string, number>();
-    this.runList = this.runList.filter((r) => {
-      const n = (counts.get(r.ownerId) ?? 0) + 1;
-      counts.set(r.ownerId, n);
-      return n <= MAX_RUNS_PER_OWNER;
-    });
+    this.runList = capPerUser([run, ...this.runList], (r) => r.ownerId);
     this.persist();
   }
   async runs(ownerId: string, limit: number) {
     return this.runList.filter((r) => r.ownerId === ownerId).slice(0, limit);
+  }
+  async addNotification(n: Notification) {
+    this.inbox = capPerUser([n, ...this.inbox], (x) => x.userId);
+    this.persist();
+  }
+  async notifications(userId: string, limit: number) {
+    return this.inbox.filter((n) => n.userId === userId).slice(0, limit);
   }
 }
 
@@ -74,6 +86,9 @@ export class PostgresAutomationRepo implements AutomationRepo {
       CREATE TABLE IF NOT EXISTS automation_runs (
         id text PRIMARY KEY, owner_id text NOT NULL, started_at timestamptz NOT NULL, data jsonb NOT NULL);
       CREATE INDEX IF NOT EXISTS automation_runs_owner ON automation_runs (owner_id, started_at DESC);
+      CREATE TABLE IF NOT EXISTS automation_notifications (
+        id text PRIMARY KEY, user_id text NOT NULL, at timestamptz NOT NULL, data jsonb NOT NULL);
+      CREATE INDEX IF NOT EXISTS automation_notifications_user ON automation_notifications (user_id, at DESC);
     `);
     return new PostgresAutomationRepo();
   }
@@ -111,5 +126,12 @@ export class PostgresAutomationRepo implements AutomationRepo {
   async runs(ownerId: string, limit: number) {
     const r = await getPool().query("SELECT data FROM automation_runs WHERE owner_id = $1 ORDER BY started_at DESC LIMIT $2", [ownerId, limit]);
     return r.rows.map((row) => row.data as Run);
+  }
+  async addNotification(n: Notification) {
+    await getPool().query("INSERT INTO automation_notifications (id, user_id, at, data) VALUES ($1, $2, $3, $4)", [n.id, n.userId, n.at, n]);
+  }
+  async notifications(userId: string, limit: number) {
+    const r = await getPool().query("SELECT data FROM automation_notifications WHERE user_id = $1 ORDER BY at DESC LIMIT $2", [userId, limit]);
+    return r.rows.map((row) => row.data as Notification);
   }
 }
