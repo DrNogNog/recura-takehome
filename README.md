@@ -33,5 +33,3 @@ The automations are managed through events and organized in the event bus. Nothi
 
 Authored By:
 Gordon N. 10/31/26
-
-Thank you for checking out this repository, for extras please follow gitHub.com/DrNogNog for more details!
